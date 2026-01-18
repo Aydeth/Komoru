@@ -10,7 +10,7 @@ const PORT = process.env.PORT || 3001;
 app.use(cors());
 app.use(express.json());
 
-// ==================== МАРШРУТЫ ====================
+// ==================== МАРШРУТЫ API ====================
 
 // 1. Проверка работы сервера
 app.get('/api/health', (req, res) => {
@@ -41,33 +41,114 @@ app.get('/api/db-check', async (req, res) => {
   }
 });
 
-// 3. Список игр (заглушка)
-app.get('/api/games', (req, res) => {
-  res.json({
-    success: true,
-    data: [
-      {
-        id: 'snake',
-        title: 'Змейка',
-        description: 'Классическая змейка для релакса',
-        icon: '🐍',
-        color: '#2E7D32',
-        difficulty: 'easy'
-      },
-      {
-        id: 'puzzle15',
-        title: 'Пятнашки',
-        description: 'Успокаивающая головоломка',
-        icon: '🧩',
-        color: '#1565C0',
-        difficulty: 'medium'
-      }
-    ]
-  });
+// 3. Список игр ИЗ БАЗЫ ДАННЫХ
+app.get('/api/games', async (req, res) => {
+  try {
+    // Получаем только активные игры из базы
+    const result = await db.query(`
+      SELECT id, title, description, icon, color, difficulty, is_active
+      FROM games 
+      WHERE is_active = TRUE
+      ORDER BY created_at
+    `);
+    
+    res.json({
+      success: true,
+      count: result.rows.length,
+      data: result.rows
+    });
+  } catch (error) {
+    console.error('❌ Ошибка при получении игр:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Не удалось загрузить игры',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
 });
 
-// 4. Информация о пользователе (заглушка)
+// 4. Получение конкретной игры по ID
+app.get('/api/games/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const result = await db.query(
+      'SELECT * FROM games WHERE id = $1 AND is_active = TRUE',
+      [id]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Игра не найдена'
+      });
+    }
+    
+    res.json({
+      success: true,
+      data: result.rows[0]
+    });
+  } catch (error) {
+    console.error('❌ Ошибка при получении игры:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Не удалось загрузить игру'
+    });
+  }
+});
+
+// 5. Топ рекордов для конкретной игры
+app.get('/api/games/:id/leaderboard', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const limit = parseInt(req.query.limit) || 10;
+    
+    // Проверяем, существует ли игра
+    const gameCheck = await db.query(
+      'SELECT id FROM games WHERE id = $1',
+      [id]
+    );
+    
+    if (gameCheck.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Игра не найдена'
+      });
+    }
+    
+    // Получаем топ рекордов с именами пользователей
+    const result = await db.query(`
+      SELECT 
+        gs.score,
+        gs.created_at,
+        u.username,
+        u.avatar_url,
+        u.level
+      FROM game_scores gs
+      JOIN users u ON gs.user_id = u.id
+      WHERE gs.game_id = $1
+      ORDER BY gs.score DESC
+      LIMIT $2
+    `, [id, limit]);
+    
+    res.json({
+      success: true,
+      game_id: id,
+      count: result.rows.length,
+      data: result.rows
+    });
+  } catch (error) {
+    console.error('❌ Ошибка при получении лидерборда:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Не удалось загрузить лидерборд'
+    });
+  }
+});
+
+// 6. Информация о пользователе (пока заглушка - потом подключим Firebase)
 app.get('/api/user/me', (req, res) => {
+  // TODO: После подключения Firebase будем получать реального пользователя
   res.json({
     success: true,
     data: {
@@ -82,79 +163,7 @@ app.get('/api/user/me', (req, res) => {
   });
 });
 
-// ВАЖНО: ТОЛЬКО ДЛЯ ОТЛАДКИ! ПОТОМ УДАЛИТЬ!
-app.post('/api/admin/reset-db', async (req, res) => {
-  try {
-    // Проверка токена (используйте тот же, что для init-db)
-    const authHeader = req.headers.authorization;
-    const expectedToken = process.env.ADMIN_TOKEN;
-    
-    if (!authHeader || authHeader !== `Bearer ${expectedToken}`) {
-      return res.status(401).json({ success: false, error: 'Unauthorized' });
-    }
-    
-    // Удаляем все таблицы (осторожно!)
-    const dropTablesSQL = `
-      DROP TABLE IF EXISTS user_quest_progress CASCADE;
-      DROP TABLE IF EXISTS daily_quests CASCADE;
-      DROP TABLE IF EXISTS user_currency CASCADE;
-      DROP TABLE IF EXISTS user_achievements CASCADE;
-      DROP TABLE IF EXISTS achievements CASCADE;
-      DROP TABLE IF EXISTS game_scores CASCADE;
-      DROP TABLE IF EXISTS games CASCADE;
-      DROP TABLE IF EXISTS users CASCADE;
-    `;
-    
-    await db.query(dropTablesSQL);
-    
-    // Запускаем нормальную инициализацию
-    const initDatabase = require('./db/init-db');
-    await initDatabase();
-    
-    res.json({ 
-      success: true, 
-      message: 'База данных полностью пересоздана' 
-    });
-    
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// Маршрут для инициализации БД (защищен)
-if (process.env.NODE_ENV !== 'production' || process.env.ENABLE_DB_INIT === 'true') {
-  app.post('/api/admin/init-db', async (req, res) => {
-    try {
-      // Простая проверка (можно усилить позже)
-      const authHeader = req.headers.authorization;
-      
-      // Проверяем токен только в production
-      if (process.env.NODE_ENV === 'production') {
-        const expectedToken = process.env.ADMIN_TOKEN;
-        if (!expectedToken) {
-          return res.status(500).json({ 
-            success: false, 
-            error: 'ADMIN_TOKEN не настроен на сервере' 
-          });
-        }
-        
-        if (!authHeader || authHeader !== `Bearer ${expectedToken}`) {
-          return res.status(401).json({ 
-            success: false, 
-            error: 'Unauthorized',
-            hint: 'Используйте Header: Authorization: Bearer YOUR_TOKEN'
-          });
-        }
-      }
-      
-      const initDatabase = require('./db/init-db');
-      await initDatabase();
-      res.json({ success: true, message: 'База данных инициализирована' });
-    } catch (error) {
-      res.status(500).json({ success: false, error: error.message });
-    }
-  });
-}
+// ==================== АДМИН-МАРШРУТЫ (для разработки) ====================
 
 // Маршрут для проверки структуры БД (только для разработки)
 app.get('/api/admin/tables', async (req, res) => {
@@ -189,7 +198,7 @@ app.get('/api/admin/test-data', async (req, res) => {
       games_count: gamesResult.rows.length,
       games: gamesResult.rows,
       achievements_count: achievementsResult.rows.length,
-      achievements: achievementsResult.rows.slice(0, 5) // первые 5
+      achievements: achievementsResult.rows.slice(0, 5)
     });
   } catch (error) {
     res.status(500).json({ 
@@ -200,7 +209,52 @@ app.get('/api/admin/test-data', async (req, res) => {
   }
 });
 
-// 5. Обработка несуществующих маршрутов (404)
+// =========== ВАЖНО: ЭТОТ МАРШРУТ ОПАСЕН! ИСПОЛЬЗОВАТЬ ТОЛЬКО ДЛЯ ОТЛАДКИ ===========
+// ВАЖНО: ТОЛЬКО ДЛЯ ОТЛАДКИ! ПОТОМ УДАЛИТЬ ИЛИ ЗАЩИТИТЬ!
+if (process.env.NODE_ENV !== 'production' || process.env.ENABLE_DB_INIT === 'true') {
+  app.post('/api/admin/reset-db', async (req, res) => {
+    try {
+      // Проверка токена
+      const authHeader = req.headers.authorization;
+      const expectedToken = process.env.ADMIN_TOKEN;
+      
+      if (!authHeader || authHeader !== `Bearer ${expectedToken}`) {
+        return res.status(401).json({ success: false, error: 'Unauthorized' });
+      }
+      
+      // Удаляем все таблицы (осторожно!)
+      const dropTablesSQL = `
+        DROP TABLE IF EXISTS user_quest_progress CASCADE;
+        DROP TABLE IF EXISTS daily_quests CASCADE;
+        DROP TABLE IF EXISTS user_currency CASCADE;
+        DROP TABLE IF EXISTS user_achievements CASCADE;
+        DROP TABLE IF EXISTS achievements CASCADE;
+        DROP TABLE IF EXISTS game_scores CASCADE;
+        DROP TABLE IF EXISTS games CASCADE;
+        DROP TABLE IF EXISTS users CASCADE;
+      `;
+      
+      await db.query(dropTablesSQL);
+      
+      // Запускаем нормальную инициализацию
+      const initDatabase = require('./db/init-db');
+      await initDatabase();
+      
+      res.json({ 
+        success: true, 
+        message: 'База данных полностью пересоздана' 
+      });
+      
+    } catch (error) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+}
+// =========== КОНЕЦ ОПАСНОГО МАРШРУТА ===========
+
+// ==================== ОБРАБОТКА ОШИБОК ====================
+
+// Обработка несуществующих маршрутов (404)
 app.use((req, res, next) => {
   res.status(404).json({
     success: false,
@@ -210,7 +264,7 @@ app.use((req, res, next) => {
   });
 });
 
-// 6. Обработка ошибок (global error handler)
+// Обработка ошибок (global error handler)
 app.use((err, req, res, next) => {
   console.error('❌ Ошибка сервера:', err);
   res.status(500).json({
@@ -220,7 +274,7 @@ app.use((err, req, res, next) => {
   });
 });
 
-// ==================== ЗАПУСК ====================
+// ==================== ЗАПУСК СЕРВЕРА ====================
 app.listen(PORT, () => {
   console.log(`
 ✨✨✨✨✨✨✨✨✨✨✨✨✨✨✨✨✨✨
