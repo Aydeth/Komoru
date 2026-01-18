@@ -82,6 +82,45 @@ app.get('/api/user/me', (req, res) => {
   });
 });
 
+// ВАЖНО: ТОЛЬКО ДЛЯ ОТЛАДКИ! ПОТОМ УДАЛИТЬ!
+app.post('/api/admin/reset-db', async (req, res) => {
+  try {
+    // Проверка токена (используйте тот же, что для init-db)
+    const authHeader = req.headers.authorization;
+    const expectedToken = process.env.ADMIN_TOKEN;
+    
+    if (!authHeader || authHeader !== `Bearer ${expectedToken}`) {
+      return res.status(401).json({ success: false, error: 'Unauthorized' });
+    }
+    
+    // Удаляем все таблицы (осторожно!)
+    const dropTablesSQL = `
+      DROP TABLE IF EXISTS user_quest_progress CASCADE;
+      DROP TABLE IF EXISTS daily_quests CASCADE;
+      DROP TABLE IF EXISTS user_currency CASCADE;
+      DROP TABLE IF EXISTS user_achievements CASCADE;
+      DROP TABLE IF EXISTS achievements CASCADE;
+      DROP TABLE IF EXISTS game_scores CASCADE;
+      DROP TABLE IF EXISTS games CASCADE;
+      DROP TABLE IF EXISTS users CASCADE;
+    `;
+    
+    await db.query(dropTablesSQL);
+    
+    // Запускаем нормальную инициализацию
+    const initDatabase = require('./db/init-db');
+    await initDatabase();
+    
+    res.json({ 
+      success: true, 
+      message: 'База данных полностью пересоздана' 
+    });
+    
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // Маршрут для инициализации БД (защищен)
 if (process.env.NODE_ENV !== 'production' || process.env.ENABLE_DB_INIT === 'true') {
   app.post('/api/admin/init-db', async (req, res) => {
@@ -116,6 +155,50 @@ if (process.env.NODE_ENV !== 'production' || process.env.ENABLE_DB_INIT === 'tru
     }
   });
 }
+
+// Маршрут для проверки структуры БД (только для разработки)
+app.get('/api/admin/tables', async (req, res) => {
+  try {
+    const result = await db.query(`
+      SELECT table_name 
+      FROM information_schema.tables 
+      WHERE table_schema = 'public'
+      ORDER BY table_name
+    `);
+    res.json({
+      success: true,
+      tables: result.rows.map(row => row.table_name),
+      count: result.rows.length
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Проверка тестовых данных в базе
+app.get('/api/admin/test-data', async (req, res) => {
+  try {
+    // Проверяем игры
+    const gamesResult = await db.query('SELECT id, title FROM games');
+    
+    // Проверяем достижения
+    const achievementsResult = await db.query('SELECT id, title FROM achievements');
+    
+    res.json({
+      success: true,
+      games_count: gamesResult.rows.length,
+      games: gamesResult.rows,
+      achievements_count: achievementsResult.rows.length,
+      achievements: achievementsResult.rows.slice(0, 5) // первые 5
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      error: error.message,
+      hint: 'Возможно, таблицы не созданы' 
+    });
+  }
+});
 
 // 5. Обработка несуществующих маршрутов (404)
 app.use((req, res, next) => {
