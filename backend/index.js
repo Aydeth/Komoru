@@ -82,6 +82,25 @@ app.get('/api/user/me', (req, res) => {
   });
 });
 
+// Маршрут для инициализации БД (защищен)
+if (process.env.NODE_ENV !== 'production' || process.env.ENABLE_DB_INIT === 'true') {
+  app.post('/api/admin/init-db', async (req, res) => {
+    try {
+      // Простая проверка (можно усилить позже)
+      const authHeader = req.headers.authorization;
+      if (process.env.NODE_ENV === 'production' && authHeader !== `Bearer ${process.env.ADMIN_TOKEN}`) {
+        return res.status(401).json({ success: false, error: 'Unauthorized' });
+      }
+      
+      const initDatabase = require('./db/init-db');
+      await initDatabase();
+      res.json({ success: true, message: 'База данных инициализирована' });
+    } catch (error) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+}
+
 // 5. Обработка несуществующих маршрутов (404)
 app.use((req, res, next) => {
   res.status(404).json({
