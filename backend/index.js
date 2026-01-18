@@ -1,14 +1,14 @@
 const express = require('express');
 const cors = require('cors');
 require('dotenv').config();
+const db = require('./db'); // Подключаем нашу базу данных
 
-// Создаем приложение
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// Мидлвары
-app.use(cors()); // Разрешаем запросы с любых доменов
-app.use(express.json()); // Позволяем читать JSON из запросов
+// Middleware
+app.use(cors());
+app.use(express.json());
 
 // ==================== МАРШРУТЫ ====================
 
@@ -22,7 +22,26 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// 2. Список игр (заглушка)
+// 2. Проверка подключения к базе данных
+app.get('/api/db-check', async (req, res) => {
+  try {
+    const result = await db.query('SELECT NOW() as current_time, version() as postgres_version');
+    res.json({
+      success: true,
+      message: '✅ Подключение к базе данных успешно',
+      data: result.rows[0]
+    });
+  } catch (error) {
+    console.error('❌ Ошибка базы данных:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Ошибка подключения к базе данных',
+      details: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
+});
+
+// 3. Список игр (заглушка)
 app.get('/api/games', (req, res) => {
   res.json({
     success: true,
@@ -47,7 +66,7 @@ app.get('/api/games', (req, res) => {
   });
 });
 
-// 3. Информация о пользователе (заглушка)
+// 4. Информация о пользователе (заглушка)
 app.get('/api/user/me', (req, res) => {
   res.json({
     success: true,
@@ -63,7 +82,7 @@ app.get('/api/user/me', (req, res) => {
   });
 });
 
-// 4. Обработка несуществующих маршрутов (404)
+// 5. Обработка несуществующих маршрутов (404)
 app.use((req, res, next) => {
   res.status(404).json({
     success: false,
@@ -73,7 +92,7 @@ app.use((req, res, next) => {
   });
 });
 
-// 5. Обработка ошибок (global error handler)
+// 6. Обработка ошибок (global error handler)
 app.use((err, req, res, next) => {
   console.error('❌ Ошибка сервера:', err);
   res.status(500).json({
@@ -91,10 +110,10 @@ app.listen(PORT, () => {
 📍  Порт: ${PORT}
 🔗  Локально: http://localhost:${PORT}
 📊  Проверка: http://localhost:${PORT}/api/health
+📊  Проверка БД: http://localhost:${PORT}/api/db-check
 🕐  Время запуска: ${new Date().toLocaleTimeString()}
 ✨✨✨✨✨✨✨✨✨✨✨✨✨✨✨✨✨✨
   `);
 });
 
-// Экспортируем для тестов (если понадобится)
 module.exports = app;
