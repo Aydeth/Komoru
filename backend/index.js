@@ -88,8 +88,24 @@ if (process.env.NODE_ENV !== 'production' || process.env.ENABLE_DB_INIT === 'tru
     try {
       // Простая проверка (можно усилить позже)
       const authHeader = req.headers.authorization;
-      if (process.env.NODE_ENV === 'production' && authHeader !== `Bearer ${process.env.ADMIN_TOKEN}`) {
-        return res.status(401).json({ success: false, error: 'Unauthorized' });
+      
+      // Проверяем токен только в production
+      if (process.env.NODE_ENV === 'production') {
+        const expectedToken = process.env.ADMIN_TOKEN;
+        if (!expectedToken) {
+          return res.status(500).json({ 
+            success: false, 
+            error: 'ADMIN_TOKEN не настроен на сервере' 
+          });
+        }
+        
+        if (!authHeader || authHeader !== `Bearer ${expectedToken}`) {
+          return res.status(401).json({ 
+            success: false, 
+            error: 'Unauthorized',
+            hint: 'Используйте Header: Authorization: Bearer YOUR_TOKEN'
+          });
+        }
       }
       
       const initDatabase = require('./db/init-db');
