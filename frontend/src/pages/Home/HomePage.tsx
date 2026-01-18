@@ -1,0 +1,125 @@
+import React, { useState, useEffect } from 'react';
+import {
+  Card,
+  CardContent,
+  CardActionArea,
+  Typography,
+  Box,
+  Chip,
+  CircularProgress,
+  Alert,
+} from '@mui/material';
+import { useNavigate } from 'react-router-dom';
+import { apiService, Game } from '../../services/api';
+
+const HomePage: React.FC = () => {
+  const [games, setGames] = useState<Game[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    loadGames();
+  }, []);
+
+  const loadGames = async () => {
+    try {
+      setLoading(true);
+      const response = await apiService.getGames();
+      if (response.success) {
+        setGames(response.data);
+      } else {
+        setError('Не удалось загрузить игры');
+      }
+    } catch (err) {
+      setError('Ошибка при загрузке игр');
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleGameClick = (gameId: string) => {
+    navigate(`/game/${gameId}`);
+  };
+
+  if (loading) {
+    return (
+      <Box sx={{ display: 'flex', justifyContent: 'center', mt: 8 }}>
+        <CircularProgress />
+      </Box>
+    );
+  }
+
+  if (error) {
+    return (
+      <Alert severity="error" sx={{ mt: 2 }}>
+        {error}
+      </Alert>
+    );
+  }
+
+  return (
+    <Box>
+      <Typography variant="h4" component="h1" gutterBottom sx={{ fontWeight: 600, mb: 4 }}>
+        🎮 Уютный игровой уголок
+      </Typography>
+      <Typography variant="body1" color="text.secondary" paragraph sx={{ mb: 4 }}>
+        Выберите игру, чтобы расслабиться и отдохнуть. Минимализм и спокойствие — наш стиль.
+      </Typography>
+
+      {/* Простая сетка на flexbox вместо Grid */}
+      <Box sx={{ 
+        display: 'grid', 
+        gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', md: '1fr 1fr 1fr 1fr' },
+        gap: 3 
+      }}>
+        {games.map((game) => (
+          <Card
+            key={game.id}
+            sx={{
+              height: '100%',
+              display: 'flex',
+              flexDirection: 'column',
+              transition: 'transform 0.2s, box-shadow 0.2s',
+              '&:hover': {
+                transform: 'translateY(-4px)',
+                boxShadow: 6,
+              },
+            }}
+          >
+            <CardActionArea
+              onClick={() => handleGameClick(game.id)}
+              sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}
+            >
+              <CardContent sx={{ flexGrow: 1, textAlign: 'center' }}>
+                <Typography variant="h2" sx={{ mb: 2 }}>
+                  {game.icon}
+                </Typography>
+                <Typography variant="h6" component="div" gutterBottom>
+                  {game.title}
+                </Typography>
+                <Typography variant="body2" color="text.secondary" paragraph>
+                  {game.description}
+                </Typography>
+                <Box sx={{ mt: 'auto' }}>
+                  <Chip
+                    label={game.difficulty === 'easy' ? 'Легко' : 'Средне'}
+                    size="small"
+                    sx={{
+                      backgroundColor: game.color + '20',
+                      color: game.color,
+                      border: `1px solid ${game.color}40`,
+                    }}
+                  />
+                </Box>
+              </CardContent>
+            </CardActionArea>
+          </Card>
+        ))}
+      </Box>
+    </Box>
+  );
+};
+
+export default HomePage;
