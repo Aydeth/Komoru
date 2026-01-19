@@ -15,6 +15,18 @@ app.use(cors({
 }));
 app.use(express.json());
 
+// Простой middleware для получения userId из заголовков
+const getUserId = (req) => {
+  // Пробуем получить из заголовка X-User-ID
+  const userIdFromHeader = req.headers['x-user-id'];
+  if (userIdFromHeader) {
+    return userIdFromHeader;
+  }
+  
+  // Или из query параметра
+  return req.query.userId || 'guest-123';
+};
+
 // ==================== МАРШРУТЫ API ====================
 
 // 1. Проверка работы сервера
@@ -347,10 +359,30 @@ app.post('/api/users/sync', async (req, res) => {
 // 11. Получить информацию о реальном пользователе
 app.get('/api/user/me', async (req, res) => {
   try {
-    // Временная заглушка - потом добавим Firebase токены
-    // TODO: Добавить проверку Firebase токена
-    const userId = req.query.userId || 'guest-123';
+    const userId = getUserId(req);
     
+    console.log(`👤 Запрос данных пользователя: ${userId}`);
+    
+    if (userId === 'guest-123') {
+      // Гостевой доступ
+      return res.json({
+        success: true,
+        data: {
+          id: 'guest-123',
+          username: 'Гость Komoru',
+          avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=komoru',
+          email: '',
+          level: 1,
+          xp: 0,
+          currency: 0,
+          joinedAt: new Date().toISOString(),
+          gamesPlayed: 0,
+          achievements: 0
+        }
+      });
+    }
+    
+    // Поиск реального пользователя
     const result = await db.query(`
       SELECT 
         u.*,
@@ -363,13 +395,13 @@ app.get('/api/user/me', async (req, res) => {
     `, [userId]);
     
     if (result.rows.length === 0) {
-      // Если пользователя нет, создаем гостя
+      // Пользователь не найден в нашей БД (но есть в Firebase)
       return res.json({
         success: true,
         data: {
-          id: 'guest-123',
-          username: 'Гость Komoru',
-          avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=komoru',
+          id: userId,
+          username: 'Новый игрок',
+          avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${userId}`,
           email: '',
           level: 1,
           xp: 0,
@@ -410,7 +442,9 @@ app.get('/api/user/me', async (req, res) => {
 // 12. Получить результаты текущего пользователя
 app.get('/api/users/current/scores', async (req, res) => {
   try {
-    const userId = req.query.userId || 'guest-123';
+    const userId = getUserId(req);
+    
+    console.log(`🎮 Запрос результатов для пользователя: ${userId}`);
     
     const result = await db.query(`
       SELECT gs.*, g.title as game_title, g.icon as game_icon
@@ -438,7 +472,7 @@ app.get('/api/users/current/scores', async (req, res) => {
 // 13. Получить достижения текущего пользователя
 app.get('/api/users/current/achievements', async (req, res) => {
   try {
-    const userId = req.query.userId || 'guest-123';
+    const userId = getUserId(req);
     
     const result = await db.query(
       `SELECT a.*, ua.unlocked_at

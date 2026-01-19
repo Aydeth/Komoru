@@ -13,31 +13,18 @@ const api = axios.create({
   withCredentials: false,
 });
 
-// Добавляем перехватчик для добавления userId
+// Перехватчик для добавления токена
 api.interceptors.request.use(
   (config) => {
-    // Добавляем userId из localStorage к запросам, где это нужно
+    // Добавляем Firebase токен из localStorage
     const userStr = localStorage.getItem('komoru_user');
     if (userStr) {
       try {
         const user = JSON.parse(userStr);
-        
-        // Для определенных endpoints добавляем userId как query параметр
-        const endpointsWithUserId = [
-          '/user/me',
-          '/users/current/scores',
-          '/users/current/achievements'
-        ];
-        
-        endpointsWithUserId.forEach(endpoint => {
-          if (config.url?.includes(endpoint)) {
-            config.params = {
-              ...config.params,
-              userId: user.id
-            };
-          }
-        });
-        
+        if (user.id && user.id !== 'guest-123') {
+          // Для реальных пользователей добавляем заголовок
+          config.headers['X-User-ID'] = user.id;
+        }
       } catch (e) {
         console.warn('Не удалось распарсить пользователя');
       }
@@ -176,8 +163,10 @@ export const apiService = {
   getUser: async (): Promise<ApiResponse<User>> => {
     try {
       const response = await api.get('/user/me');
+      console.log('👤 Данные пользователя:', response.data);
       return response.data;
     } catch (error) {
+      console.error('Ошибка получения пользователя:', error);
       return {
         success: false,
         error: 'Не удалось загрузить информацию о пользователе'
@@ -195,6 +184,8 @@ export const apiService = {
       // Получаем userId из localStorage
       const userStr = localStorage.getItem('komoru_user');
       const userId = userStr ? JSON.parse(userStr).id : 'guest-123';
+      
+      console.log(`💾 Сохранение результата для пользователя: ${userId}`);
       
       const response = await api.post(`/games/${gameId}/scores`, {
         userId,
@@ -215,8 +206,10 @@ export const apiService = {
   getUserScores: async (): Promise<ApiResponse<GameScore[]>> => {
     try {
       const response = await api.get('/users/current/scores');
+      console.log('🎮 Результаты игр:', response.data);
       return response.data;
     } catch (error) {
+      console.error('Ошибка получения результатов:', error);
       return {
         success: false,
         error: 'Не удалось загрузить результаты'
@@ -228,8 +221,10 @@ export const apiService = {
   getUserAchievements: async (): Promise<ApiResponse<Achievement[]>> => {
     try {
       const response = await api.get('/users/current/achievements');
+      console.log('🏆 Достижения:', response.data);
       return response.data;
     } catch (error) {
+      console.error('Ошибка получения достижений:', error);
       return {
         success: false,
         error: 'Не удалось загрузить достижения'
@@ -246,6 +241,7 @@ export const apiService = {
   }): Promise<ApiResponse<any>> => {
     try {
       const response = await api.post('/users/sync', userData);
+      console.log('🔄 Пользователь синхронизирован:', response.data);
       return response.data;
     } catch (error) {
       return {

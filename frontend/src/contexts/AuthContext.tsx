@@ -41,30 +41,35 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [loading, setLoading] = useState(true);
 
   // Синхронизация с нашим бэкендом
-  const syncUserWithBackend = async (firebaseUser: FirebaseUser) => {
-    try {
-      const userData = {
-        id: firebaseUser.uid,
-        email: firebaseUser.email || '',
-        name: firebaseUser.displayName || 'Игрок',
-        avatar: firebaseUser.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${firebaseUser.uid}`,
-      };
+  // Синхронизация с нашим бэкендом
+const syncUserWithBackend = async (firebaseUser: FirebaseUser) => {
+  try {
+    const userData = {
+      id: firebaseUser.uid,
+      email: firebaseUser.email || '',
+      name: firebaseUser.displayName || 'Игрок',
+      avatar: firebaseUser.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${firebaseUser.uid}`,
+    };
 
-      setUser(userData);
-      localStorage.setItem('komoru_user', JSON.stringify(userData));
-      
-      // Синхронизируем с нашим бэкендом
-      await apiService.syncUser({
-        uid: firebaseUser.uid,
-        email: firebaseUser.email,
-        displayName: firebaseUser.displayName,
-        photoURL: firebaseUser.photoURL
-      });
-      
-    } catch (error) {
-      console.error('Error syncing user:', error);
-    }
-  };
+    console.log('🔄 Синхронизация пользователя:', userData);
+    
+    setUser(userData);
+    localStorage.setItem('komoru_user', JSON.stringify(userData));
+    
+    // Синхронизируем с нашим бэкендом
+    const syncResult = await apiService.syncUser({
+      uid: firebaseUser.uid,
+      email: firebaseUser.email,
+      displayName: firebaseUser.displayName,
+      photoURL: firebaseUser.photoURL
+    });
+    
+    console.log('✅ Результат синхронизации:', syncResult);
+    
+  } catch (error) {
+    console.error('Error syncing user:', error);
+  }
+};
 
   // Вход через Google
   const signInWithGoogle = async () => {
