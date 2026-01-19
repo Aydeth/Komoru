@@ -80,42 +80,49 @@ const GamePage: React.FC = () => {
   };
 
   const handleGameEnd = async (score: number, metadata?: Record<string, any>) => {
-    try {
-      console.log('Game ended with score:', score, 'metadata:', metadata);
-      
-      // Попробуем сохранить результат
-      const response = await apiService.saveGameScore(id!, score, {
-        ...metadata,
-        timestamp: new Date().toISOString()
+  try {
+    if (!id) return;
+    
+    // Пробуем сохранить результат
+    const response = await apiService.saveGameScore(id, score, {
+      ...metadata,
+      timestamp: new Date().toISOString(),
+      gameVersion: '1.0.0'
+    });
+    
+    if (response.success) {
+      setNotification({
+        show: true,
+        message: `🎉 Результат сохранен: ${score} очков!`,
+        type: 'success'
       });
       
-      if (response.success) {
-        setNotification({
-          show: true,
-          message: `🎉 Результат сохранен: ${score} очков!`,
-          type: 'success'
-        });
-        
-        // Обновляем лидерборд через 2 секунды
-        setTimeout(() => {
-          if (id) loadGameData(id);
-        }, 2000);
-      } else {
-        setNotification({
-          show: true,
-          message: `Вы набрали ${score} очков! (результат пока не сохранен)`,
-          type: 'warning'
-        });
-      }
-    } catch (error) {
-      console.error('Error saving game result:', error);
+      // Обновляем лидерборд
+      setTimeout(() => {
+        loadGameData(id);
+      }, 1000);
+    } else if (response.error?.includes('Требуется авторизация')) {
+      setNotification({
+        show: true,
+        message: `Вы набрали ${score} очков! Войдите, чтобы сохранить результат.`,
+        type: 'warning'
+      });
+    } else {
       setNotification({
         show: true,
         message: `Вы набрали ${score} очков!`,
         type: 'info'
       });
     }
-  };
+  } catch (error) {
+    console.error('Error saving game result:', error);
+    setNotification({
+      show: true,
+      message: `Вы набрали ${score} очков!`,
+      type: 'info'
+    });
+  }
+};
 
   // Если играем в змейку
   if (showGame && id === 'snake') {

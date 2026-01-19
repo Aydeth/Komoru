@@ -1,22 +1,22 @@
 import axios from 'axios';
 
 // Базовый URL нашего бэкенда на Render
-const API_BASE_URL = 'https://komoru-api.onrender.com/api';
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://komoru-api.onrender.com/api';
+
+console.log('🌍 API Base URL:', API_BASE_URL);
 
 const api = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 10000,
+  timeout: 15000,
   headers: {
     'Content-Type': 'application/json',
     'Accept': 'application/json',
   },
-  withCredentials: false,
 });
 
+// Перехватчик для добавления токена
 api.interceptors.request.use(
   (config) => {
-    console.log(`🌐 ${config.method?.toUpperCase()} ${config.baseURL}${config.url}`);
-    
     // Добавляем токен из localStorage
     const userStr = localStorage.getItem('komoru_user');
     if (userStr) {
@@ -26,7 +26,7 @@ api.interceptors.request.use(
           config.headers.Authorization = `Bearer ${user.token}`;
         }
       } catch (e) {
-        console.warn('Не удалось распарсить пользователя из localStorage');
+        console.warn('⚠️ Не удалось распарсить пользователя из localStorage');
       }
     }
     
@@ -38,32 +38,31 @@ api.interceptors.request.use(
   }
 );
 
-// Добавляем перехватчик для отладки
-api.interceptors.request.use(
-  (config) => {
-    console.log(`🌐 ${config.method?.toUpperCase()} ${config.baseURL}${config.url}`);
-    return config;
-  },
-  (error) => {
-    console.error('❌ Request Error:', error);
-    return Promise.reject(error);
-  }
-);
-
+// Перехватчик ответов
 api.interceptors.response.use(
   (response) => {
-    console.log(`✅ ${response.status} ${response.config.url}`);
     return response;
   },
   (error) => {
     if (error.response) {
       console.error('❌ API Error:', {
         status: error.response.status,
-        data: error.response.data,
         url: error.config.url,
+        error: error.response.data?.error || 'Unknown error'
       });
+      
+      // Автоматический логаут при 401
+      if (error.response.status === 401) {
+        console.log('🔒 Сессия истекла, требуется повторный вход');
+        localStorage.removeItem('komoru_user');
+        window.dispatchEvent(new Event('storage'));
+      }
     } else if (error.request) {
-      console.error('❌ No response received:', error.request);
+      console.error('❌ No response received from server');
+      console.log('💡 Проверьте:');
+      console.log('1. Сервер запущен на', API_BASE_URL);
+      console.log('2. CORS настройки на сервере');
+      console.log('3. Сетевое подключение');
     } else {
       console.error('❌ Request setup error:', error.message);
     }
@@ -93,11 +92,15 @@ export interface LeaderboardEntry {
 export interface User {
   id: string;
   username: string;
+  email: string;
   avatar: string;
   level: number;
   xp: number;
   currency: number;
   joinedAt: string;
+  gamesPlayed?: number;
+  achievements?: number;
+  rank?: string;
 }
 
 export interface GameScore {
@@ -124,6 +127,13 @@ export interface Achievement {
   unlocked_at?: string;
 }
 
+export interface SyncUserData {
+  uid: string;
+  email: string | null;
+  displayName: string | null;
+  photoURL: string | null;
+}
+
 export interface ApiResponse<T> {
   success: boolean;
   data?: T;
@@ -143,7 +153,7 @@ export const apiService = {
       console.error('❌ Error in checkHealth:', error);
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Неизвестная ошибка'
+        error: 'Сервер не отвечает'
       };
     }
   },
@@ -151,13 +161,19 @@ export const apiService = {
   // Получить все игры
   getGames: async (): Promise<ApiResponse<Game[]>> => {
     try {
+      console.log('🎮 Загружаем игры с', `${API_BASE_URL}/games`);
       const response = await api.get('/games');
+      console.log('✅ Игры загружены:', response.data);
       return response.data;
-    } catch (error) {
-      console.error('❌ Error in getGames:', error);
+    } catch (error: any) {
+      console.error('❌ Error in getGames:', error.message);
+      console.error('Full error:', error);
+      
+      // Возвращаем заглушку, если сервер недоступен
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Неизвестная ошибка'
+        error: 'Не удалось загрузить игры. Проверьте подключение к серверу.',
+        data: [] // Пустой массив вместо undefined
       };
     }
   },
@@ -167,11 +183,11 @@ export const apiService = {
     try {
       const response = await api.get(`/games/${id}`);
       return response.data;
-    } catch (error) {
+    } catch (error: any) {
       console.error(`❌ Error in getGame ${id}:`, error);
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Неизвестная ошибка'
+        error: 'Игра не найдена'
       };
     }
   },
@@ -185,25 +201,35 @@ export const apiService = {
       const params = limit ? { limit } : {};
       const response = await api.get(`/games/${gameId}/leaderboard`, { params });
       return response.data;
-    } catch (error) {
+    } catch (error: any) {
       console.error(`❌ Error in getLeaderboard for ${gameId}:`, error);
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Неизвестная ошибка'
+        error: 'Не удалось загрузить лидерборд',
+        data: [] // Пустой массив вместо undefined
       };
     }
   },
 
-  // Получить информацию о пользователе (пока заглушка)
+  // Получить информацию о пользователе
   getUser: async (): Promise<ApiResponse<User>> => {
     try {
       const response = await api.get('/user/me');
       return response.data;
-    } catch (error) {
+    } catch (error: any) {
       console.error('❌ Error in getUser:', error);
+      
+      // Если пользователь не авторизован, возвращаем ошибку
+      if (error.response?.status === 401) {
+        return {
+          success: false,
+          error: 'Требуется авторизация'
+        };
+      }
+      
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Неизвестная ошибка'
+        error: 'Не удалось загрузить информацию о пользователе'
       };
     }
   },
@@ -215,67 +241,87 @@ export const apiService = {
     metadata?: Record<string, any>
   ): Promise<ApiResponse<GameScore>> => {
     try {
-      // Временный userId - позже заменим на реального пользователя
-      const userId = 'guest-123';
-      
       const response = await api.post(`/games/${gameId}/scores`, {
-        userId,
         score,
         metadata: metadata || {}
       });
       
       return response.data;
-    } catch (error) {
+    } catch (error: any) {
       console.error('❌ Error in saveGameScore:', error);
+      
+      if (error.response?.status === 401) {
+        return {
+          success: false,
+          error: 'Требуется авторизация для сохранения результатов'
+        };
+      }
+      
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Не удалось сохранить результат'
+        error: 'Не удалось сохранить результат'
       };
     }
   },
 
   // Получить результаты пользователя
-  getUserScores: async (userId: string, gameId?: string): Promise<ApiResponse<GameScore[]>> => {
+  getUserScores: async (userId?: string): Promise<ApiResponse<GameScore[]>> => {
     try {
-      const params = gameId ? { gameId } : {};
-      const response = await api.get(`/users/${userId}/scores`, { params });
+      const endpoint = userId ? `/users/${userId}/scores` : '/users/current/scores';
+      const response = await api.get(endpoint);
       return response.data;
-    } catch (error) {
+    } catch (error: any) {
       console.error('❌ Error in getUserScores:', error);
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Не удалось загрузить результаты'
+        error: 'Не удалось загрузить результаты',
+        data: [] // Пустой массив вместо undefined
       };
     }
   },
 
   // Получить достижения пользователя
-  getUserAchievements: async (userId: string): Promise<ApiResponse<Achievement[]>> => {
+  getUserAchievements: async (userId?: string): Promise<ApiResponse<Achievement[]>> => {
     try {
-      const response = await api.get(`/users/${userId}/achievements`);
+      const endpoint = userId ? `/users/${userId}/achievements` : '/users/current/achievements';
+      const response = await api.get(endpoint);
       return response.data;
-    } catch (error) {
+    } catch (error: any) {
       console.error('❌ Error in getUserAchievements:', error);
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Не удалось загрузить достижения'
+        error: 'Не удалось загрузить достижения',
+        data: [] // Пустой массив вместо undefined
       };
     }
   },
 
-  // Обновить информацию о пользователе
-  updateUserStats: async (
-    userId: string, 
-    data: { xp?: number; currency?: number }
-  ): Promise<ApiResponse<User>> => {
+  // Синхронизация пользователя с бэкендом
+  syncUser: async (userData: SyncUserData): Promise<ApiResponse<any>> => {
     try {
-      const response = await api.put(`/users/${userId}/stats`, data);
+      const response = await api.post('/users/sync', userData);
       return response.data;
-    } catch (error) {
-      console.error('❌ Error in updateUserStats:', error);
+    } catch (error: any) {
+      console.error('❌ Error syncing user:', error);
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Не удалось обновить статистику'
+        error: 'Ошибка синхронизации'
+      };
+    }
+  },
+
+  // Получить топ игроков (глобальный)
+  getTopPlayers: async (limit?: number): Promise<ApiResponse<any>> => {
+    try {
+      const params = limit ? { limit } : {};
+      const response = await api.get('/leaderboard/global', { params });
+      return response.data;
+    } catch (error: any) {
+      console.error('❌ Error in getTopPlayers:', error);
+      return {
+        success: false,
+        error: 'Не удалось загрузить топ игроков',
+        data: [] // Пустой массив вместо undefined
       };
     }
   },
@@ -285,22 +331,20 @@ export const apiService = {
     try {
       const response = await api.get('/db-check');
       return response.data;
-    } catch (error) {
+    } catch (error: any) {
       console.error('❌ Error in checkDatabase:', error);
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Неизвестная ошибка'
+        error: 'Не удалось подключиться к базе данных'
       };
     }
   },
 
-  // Дополнительный метод для проверки CORS
+  // Проверка CORS
   testCors: async (): Promise<{ ok: boolean; status: number; statusText: string }> => {
     try {
-      // Простой запрос для проверки CORS
       const response = await fetch(API_BASE_URL + '/health', {
         method: 'GET',
-        mode: 'cors',
         headers: {
           'Content-Type': 'application/json'
         }

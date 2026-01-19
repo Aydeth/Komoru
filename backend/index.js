@@ -353,6 +353,93 @@ app.get('/api/users/:userId/achievements', async (req, res) => {
   }
 });
 
+// 10. Получить результаты текущего пользователя
+app.get('/api/users/current/scores', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.uid;
+    
+    const result = await db.query(`
+      SELECT gs.*, g.title as game_title, g.icon as game_icon
+      FROM game_scores gs
+      JOIN games g ON gs.game_id = g.id
+      WHERE gs.user_id = $1
+      ORDER BY gs.created_at DESC
+    `, [userId]);
+    
+    res.json({
+      success: true,
+      count: result.rows.length,
+      data: result.rows
+    });
+  } catch (error) {
+    console.error('❌ Ошибка при получении результатов:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Не удалось загрузить результаты'
+    });
+  }
+});
+
+// 11. Получить достижения текущего пользователя
+app.get('/api/users/current/achievements', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.uid;
+    
+    const result = await db.query(
+      `SELECT a.*, ua.unlocked_at
+       FROM achievements a
+       JOIN user_achievements ua ON a.id = ua.achievement_id
+       WHERE ua.user_id = $1
+       ORDER BY ua.unlocked_at DESC`,
+      [userId]
+    );
+    
+    res.json({
+      success: true,
+      count: result.rows.length,
+      data: result.rows
+    });
+  } catch (error) {
+    console.error('❌ Ошибка при получении достижений:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Не удалось загрузить достижения'
+    });
+  }
+});
+
+// 12. Получить глобальный лидерборд
+app.get('/api/leaderboard/global', async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 10;
+    
+    const result = await db.query(`
+      SELECT 
+        u.username,
+        u.avatar_url,
+        u.level,
+        SUM(gs.score) as total_score,
+        COUNT(gs.id) as games_played
+      FROM users u
+      JOIN game_scores gs ON u.id = gs.user_id
+      GROUP BY u.id, u.username, u.avatar_url, u.level
+      ORDER BY total_score DESC
+      LIMIT $1
+    `, [limit]);
+    
+    res.json({
+      success: true,
+      data: result.rows
+    });
+  } catch (error) {
+    console.error('❌ Ошибка при получении глобального лидерборда:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Не удалось загрузить лидерборд'
+    });
+  }
+});
+
 // ==================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ====================
 
 // Проверка достижений
