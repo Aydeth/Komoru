@@ -124,4 +124,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   );
 };
 
-export default { AuthProvider, useAuth };
+// Исправление для ESLint: экспортируем объект через переменную
+const authExports = { AuthProvider, useAuth };
+export default authExports;

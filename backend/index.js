@@ -301,6 +301,169 @@ app.get('/api/users/:userId/achievements', async (req, res) => {
   }
 });
 
+// Добавь после существующих маршрутов (после 9-го маршрута)
+
+// 10. Синхронизация пользователя с Firebase
+app.post('/api/users/sync', async (req, res) => {
+  try {
+    const { uid, email, displayName, photoURL } = req.body;
+    
+    console.log(`🔄 Синхронизация пользователя: ${email}`);
+    
+    // Создаем или обновляем пользователя в нашей БД
+    const result = await db.query(`
+      INSERT INTO users (id, email, username, avatar_url, last_login)
+      VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
+      ON CONFLICT (id) DO UPDATE SET
+        email = EXCLUDED.email,
+        username = EXCLUDED.username,
+        avatar_url = EXCLUDED.avatar_url,
+        last_login = CURRENT_TIMESTAMP
+      RETURNING *
+    `, [uid, email, displayName || 'Игрок', photoURL]);
+    
+    // Создаем запись валюты, если её нет
+    await db.query(`
+      INSERT INTO user_currency (user_id, balance)
+      VALUES ($1, 0)
+      ON CONFLICT (user_id) DO NOTHING
+    `, [uid]);
+    
+    res.json({
+      success: true,
+      data: result.rows[0],
+      message: 'Пользователь синхронизирован'
+    });
+    
+  } catch (error) {
+    console.error('❌ Ошибка синхронизации пользователя:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Ошибка синхронизации пользователя'
+    });
+  }
+});
+
+// 11. Получить информацию о реальном пользователе
+app.get('/api/user/me', async (req, res) => {
+  try {
+    // Временная заглушка - потом добавим Firebase токены
+    // TODO: Добавить проверку Firebase токена
+    const userId = req.query.userId || 'guest-123';
+    
+    const result = await db.query(`
+      SELECT 
+        u.*,
+        uc.balance as currency,
+        (SELECT COUNT(*) FROM user_achievements ua WHERE ua.user_id = u.id) as achievements_count,
+        (SELECT COUNT(*) FROM game_scores gs WHERE gs.user_id = u.id) as games_played
+      FROM users u
+      LEFT JOIN user_currency uc ON u.id = uc.user_id
+      WHERE u.id = $1
+    `, [userId]);
+    
+    if (result.rows.length === 0) {
+      // Если пользователя нет, создаем гостя
+      return res.json({
+        success: true,
+        data: {
+          id: 'guest-123',
+          username: 'Гость Komoru',
+          avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=komoru',
+          email: '',
+          level: 1,
+          xp: 0,
+          currency: 0,
+          joinedAt: new Date().toISOString(),
+          gamesPlayed: 0,
+          achievements: 0
+        }
+      });
+    }
+    
+    const user = result.rows[0];
+    
+    res.json({
+      success: true,
+      data: {
+        id: user.id,
+        username: user.username,
+        avatar: user.avatar_url,
+        email: user.email,
+        level: user.level,
+        xp: user.total_xp,
+        currency: user.currency || 0,
+        joinedAt: user.created_at,
+        gamesPlayed: user.games_played || 0,
+        achievements: user.achievements_count || 0
+      }
+    });
+  } catch (error) {
+    console.error('❌ Ошибка при получении пользователя:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Не удалось загрузить информацию о пользователе'
+    });
+  }
+});
+
+// 12. Получить результаты текущего пользователя
+app.get('/api/users/current/scores', async (req, res) => {
+  try {
+    const userId = req.query.userId || 'guest-123';
+    
+    const result = await db.query(`
+      SELECT gs.*, g.title as game_title, g.icon as game_icon
+      FROM game_scores gs
+      JOIN games g ON gs.game_id = g.id
+      WHERE gs.user_id = $1
+      ORDER BY gs.created_at DESC
+      LIMIT 10
+    `, [userId]);
+    
+    res.json({
+      success: true,
+      count: result.rows.length,
+      data: result.rows
+    });
+  } catch (error) {
+    console.error('❌ Ошибка при получении результатов:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Не удалось загрузить результаты'
+    });
+  }
+});
+
+// 13. Получить достижения текущего пользователя
+app.get('/api/users/current/achievements', async (req, res) => {
+  try {
+    const userId = req.query.userId || 'guest-123';
+    
+    const result = await db.query(
+      `SELECT a.*, ua.unlocked_at
+       FROM achievements a
+       JOIN user_achievements ua ON a.id = ua.achievement_id
+       WHERE ua.user_id = $1
+       ORDER BY ua.unlocked_at DESC
+       LIMIT 10`,
+      [userId]
+    );
+    
+    res.json({
+      success: true,
+      count: result.rows.length,
+      data: result.rows
+    });
+  } catch (error) {
+    console.error('❌ Ошибка при получении достижений:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Не удалось загрузить достижения'
+    });
+  }
+});
+
 // ==================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ====================
 
 // Проверка достижений
