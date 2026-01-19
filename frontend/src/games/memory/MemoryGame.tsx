@@ -32,11 +32,16 @@ interface CardType {
   isMatched: boolean;
 }
 
-const EMOJIS = ['🐶', '🐱', '🐭', '🐹', '🐰', '🦊', '🐻', '🐼', '🐨', '🐯', '🦁', '🐮'];
+const EMOJIS = [
+  '🐶', '🐱', '🐭', '🐹', '🐰', '🦊', '🐻', '🐼', '🐨', '🐯', '🦁', '🐮',
+  '🐷', '🐸', '🐵', '🐔', '🐧', '🐦', '🐤', '🦄', '🐴', '🦋', '🐌', '🐞',
+  '🐜', '🦂', '🦀', '🐙', '🦑', '🐋', '🐬', '🐟', '🐠', '🐡', '🦈', '🐊'
+];
+
 const GRID_SIZES = [
-  { size: 4, pairs: 8, difficulty: 'легко' },
-  { size: 6, pairs: 18, difficulty: 'средне' },
-  { size: 8, pairs: 32, difficulty: 'сложно' }
+  { rows: 4, cols: 4, totalCards: 16, pairs: 8, difficulty: 'легко' },
+  { rows: 6, cols: 6, totalCards: 36, pairs: 18, difficulty: 'средне' },
+  { rows: 8, cols: 8, totalCards: 64, pairs: 32, difficulty: 'сложно' }
 ];
 
 const MemoryGame: React.FC<MemoryGameProps> = ({ onBack, onGameEnd }) => {
@@ -46,9 +51,10 @@ const MemoryGame: React.FC<MemoryGameProps> = ({ onBack, onGameEnd }) => {
   const [matches, setMatches] = useState(0);
   const [gameStarted, setGameStarted] = useState(false);
   const [gameOver, setGameOver] = useState(false);
+  const [gameEndCalled, setGameEndCalled] = useState(false);
   const [time, setTime] = useState(0);
   const [timerActive, setTimerActive] = useState(false);
-  const [difficulty, setDifficulty] = useState(0); // 0: easy, 1: medium, 2: hard
+  const [difficulty, setDifficulty] = useState(0);
   const [highScore, setHighScore] = useState(() => {
     const scores = JSON.parse(localStorage.getItem('memory_high_scores') || '{"easy": 0, "medium": 0, "hard": 0}');
     return scores;
@@ -59,24 +65,37 @@ const MemoryGame: React.FC<MemoryGameProps> = ({ onBack, onGameEnd }) => {
     const gridSize = GRID_SIZES[difficulty];
     const pairs = gridSize.pairs;
     
-    // Выбираем эмодзи для игры
-    const selectedEmojis = [...EMOJIS].sort(() => Math.random() - 0.5).slice(0, pairs);
-    const gameCards = [...selectedEmojis, ...selectedEmojis]
-      .map((emoji, index) => ({
-        id: index,
-        value: emoji,
-        icon: emoji,
-        isFlipped: false,
-        isMatched: false,
-      }))
-      .sort(() => Math.random() - 0.5); // Перемешиваем
-
-    setCards(gameCards);
+    // Выбираем уникальные эмодзи для игры
+    const shuffledEmojis = [...EMOJIS].sort(() => Math.random() - 0.5);
+    const selectedEmojis = shuffledEmojis.slice(0, pairs);
+    
+    // Создаем пары карточек
+    const gameCards: CardType[] = [];
+    let cardId = 0;
+    
+    // Создаем пары
+    for (let i = 0; i < 2; i++) {
+      selectedEmojis.forEach(emoji => {
+        gameCards.push({
+          id: cardId++,
+          value: emoji,
+          icon: emoji,
+          isFlipped: false,
+          isMatched: false,
+        });
+      });
+    }
+    
+    // Перемешиваем карточки
+    const shuffledCards = [...gameCards].sort(() => Math.random() - 0.5);
+    
+    setCards(shuffledCards);
     setSelectedCards([]);
     setMoves(0);
     setMatches(0);
     setGameStarted(false);
     setGameOver(false);
+    setGameEndCalled(false);
     setTime(0);
     setTimerActive(false);
   }, [difficulty]);
@@ -101,12 +120,17 @@ const MemoryGame: React.FC<MemoryGameProps> = ({ onBack, onGameEnd }) => {
     };
   }, [timerActive, gameOver]);
 
-  // Проверка конца игры
+  // Проверка конца игры (с защитой от повторного вызова)
   useEffect(() => {
     const totalPairs = GRID_SIZES[difficulty].pairs;
-    if (matches === totalPairs && gameStarted) {
+    
+    // Проверяем, что игра завершена, но ещё не вызывали onGameEnd
+    if (matches === totalPairs && gameStarted && !gameOver && !gameEndCalled) {
+      console.log('🎮 Игра Memory завершена! Вызываем onGameEnd...');
+      
       setGameOver(true);
       setTimerActive(false);
+      setGameEndCalled(true); // Защита от повторного вызова
       
       // Расчет очков
       const score = calculateScore();
@@ -124,12 +148,12 @@ const MemoryGame: React.FC<MemoryGameProps> = ({ onBack, onGameEnd }) => {
           difficulty: difficultyKey,
           time,
           moves,
-          accuracy: ((matches * 2) / moves) * 100 || 0,
-          gameVersion: '1.0.0'
+          accuracy: moves > 0 ? ((matches * 2) / moves) * 100 : 0,
+          gameVersion: '1.1.0'
         });
       }
     }
-  }, [matches, gameStarted, difficulty, time, moves, highScore, onGameEnd]);
+  }, [matches, gameStarted, gameOver, gameEndCalled, difficulty, time, moves, highScore, onGameEnd]);
 
   const calculateScore = () => {
     const baseScore = 1000;
@@ -148,7 +172,7 @@ const MemoryGame: React.FC<MemoryGameProps> = ({ onBack, onGameEnd }) => {
 
     // Проверяем условия для клика
     const card = cards.find(c => c.id === cardId);
-    if (!card || card.isFlipped || card.isMatched || selectedCards.length >= 2) {
+    if (!card || card.isFlipped || card.isMatched || selectedCards.length >= 2 || gameOver) {
       return;
     }
 
@@ -210,6 +234,7 @@ const MemoryGame: React.FC<MemoryGameProps> = ({ onBack, onGameEnd }) => {
 
   const restartGame = () => {
     initializeGame();
+    setGameEndCalled(false);
   };
 
   const changeDifficulty = (newDifficulty: number) => {
@@ -222,13 +247,13 @@ const MemoryGame: React.FC<MemoryGameProps> = ({ onBack, onGameEnd }) => {
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const currentGridSize = GRID_SIZES[difficulty];
+  const currentGrid = GRID_SIZES[difficulty];
   const difficultyKey = ['easy', 'medium', 'hard'][difficulty];
   const score = calculateScore();
   const accuracy = moves > 0 ? ((matches * 2) / moves) * 100 : 0;
 
   return (
-    <Container maxWidth="md">
+    <Container maxWidth="lg">
       <Box sx={{ py: 4 }}>
         {/* Панель управления */}
         {onBack && (
@@ -258,7 +283,7 @@ const MemoryGame: React.FC<MemoryGameProps> = ({ onBack, onGameEnd }) => {
                   Сложность
                 </Typography>
                 <Typography variant="h6" sx={{ color: '#1565C0' }}>
-                  {currentGridSize.difficulty}
+                  {currentGrid.difficulty}
                 </Typography>
               </Box>
               
@@ -298,17 +323,17 @@ const MemoryGame: React.FC<MemoryGameProps> = ({ onBack, onGameEnd }) => {
           <Paper elevation={0} sx={{ p: 2, mb: 3, bgcolor: '#F5F5F5', borderRadius: 2 }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 1 }}>
               <Typography variant="body2" color="text.secondary">
-                Прогресс: {matches} / {currentGridSize.pairs} пар
+                Прогресс: {matches} / {currentGrid.pairs} пар
               </Typography>
               <Box sx={{ flexGrow: 1 }}>
                 <LinearProgress 
                   variant="determinate" 
-                  value={(matches / currentGridSize.pairs) * 100}
+                  value={(matches / currentGrid.pairs) * 100}
                   sx={{ height: 8, borderRadius: 4 }}
                 />
               </Box>
               <Typography variant="body2" color="primary">
-                {Math.round((matches / currentGridSize.pairs) * 100)}%
+                {Math.round((matches / currentGrid.pairs) * 100)}%
               </Typography>
             </Box>
             
@@ -322,10 +347,10 @@ const MemoryGame: React.FC<MemoryGameProps> = ({ onBack, onGameEnd }) => {
         <Paper elevation={2} sx={{ p: 3, mb: 3, borderRadius: 3, bgcolor: '#FAFAFA' }}>
           <Box sx={{ 
             display: 'grid',
-            gridTemplateColumns: `repeat(${currentGridSize.size}, 1fr)`,
+            gridTemplateColumns: `repeat(${currentGrid.cols}, 1fr)`,
             gap: 2,
             justifyContent: 'center',
-            maxWidth: currentGridSize.size * 80,
+            maxWidth: currentGrid.cols * 80,
             mx: 'auto'
           }}>
             {cards.map((card) => (
@@ -344,7 +369,7 @@ const MemoryGame: React.FC<MemoryGameProps> = ({ onBack, onGameEnd }) => {
                 >
                   <CardActionArea
                     onClick={() => handleCardClick(card.id)}
-                    disabled={card.isMatched}
+                    disabled={card.isMatched || gameOver}
                     sx={{ height: '100%' }}
                   >
                     {/* Задняя сторона карты */}
@@ -419,12 +444,12 @@ const MemoryGame: React.FC<MemoryGameProps> = ({ onBack, onGameEnd }) => {
                   }
                 }}
               >
-                {grid.difficulty} ({grid.size}x{grid.size})
+                {grid.difficulty} ({grid.rows}x{grid.cols})
               </Button>
             ))}
           </Box>
           <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
-            {currentGridSize.pairs} пар • Сложность влияет на количество очков
+            {currentGrid.pairs} пар • {currentGrid.totalCards} карточек • Сложность влияет на количество очков
           </Typography>
         </Paper>
 
@@ -573,6 +598,7 @@ const MemoryGame: React.FC<MemoryGameProps> = ({ onBack, onGameEnd }) => {
                 <li><Typography variant="body2">Нажмите на карточку, чтобы перевернуть её</Typography></li>
                 <li><Typography variant="body2">За один ход можно открыть только 2 карточки</Typography></li>
                 <li><Typography variant="body2">Совпавшие карточки остаются открытыми</Typography></li>
+                <li><Typography variant="body2">Игра завершается, когда найдены все пары</Typography></li>
               </ul>
             </Box>
             <Box>
@@ -584,6 +610,7 @@ const MemoryGame: React.FC<MemoryGameProps> = ({ onBack, onGameEnd }) => {
                 <li><Typography variant="body2">Меньше времени = больше очков</Typography></li>
                 <li><Typography variant="body2">Высокая сложность = множитель очков</Typography></li>
                 <li><Typography variant="body2">Рекорды сохраняются отдельно для каждой сложности</Typography></li>
+                <li><Typography variant="body2">На сложном уровне нужно найти 32 пары в сетке 8x8</Typography></li>
               </ul>
             </Box>
           </Box>
