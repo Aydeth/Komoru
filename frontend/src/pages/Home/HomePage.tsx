@@ -8,6 +8,7 @@ import {
   Chip,
   CircularProgress,
   Alert,
+  Button,
 } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import { apiService, Game } from '../../services/api';
@@ -26,17 +27,25 @@ const HomePage: React.FC = () => {
     try {
       setLoading(true);
       const response = await apiService.getGames();
-      if (response.success) {
+      
+      if (response.success && response.data) {
         setGames(response.data);
       } else {
-        setError('Не удалось загрузить игры');
+        setError(response.error || 'Не удалось загрузить игры');
       }
     } catch (err) {
-      setError('Ошибка при загрузке игр');
-      console.error(err);
+      const errorMessage = err instanceof Error ? err.message : 'Ошибка при загрузке игр';
+      setError(errorMessage);
+      console.error('Load games error:', err);
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleRetry = () => {
+    setError(null);
+    setLoading(true);
+    loadGames();
   };
 
   const handleGameClick = (gameId: string) => {
@@ -53,9 +62,18 @@ const HomePage: React.FC = () => {
 
   if (error) {
     return (
-      <Alert severity="error" sx={{ mt: 2 }}>
-        {error}
-      </Alert>
+      <Box sx={{ maxWidth: 600, mx: 'auto', mt: 4 }}>
+        <Alert 
+          severity="error" 
+          action={
+            <Button color="inherit" size="small" onClick={handleRetry}>
+              Повторить
+            </Button>
+          }
+        >
+          {error}
+        </Alert>
+      </Box>
     );
   }
 
@@ -68,7 +86,6 @@ const HomePage: React.FC = () => {
         Выберите игру, чтобы расслабиться и отдохнуть. Минимализм и спокойствие — наш стиль.
       </Typography>
 
-      {/* Простая сетка на flexbox вместо Grid */}
       <Box sx={{ 
         display: 'grid', 
         gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', md: '1fr 1fr 1fr 1fr' },
@@ -93,7 +110,7 @@ const HomePage: React.FC = () => {
               sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}
             >
               <CardContent sx={{ flexGrow: 1, textAlign: 'center' }}>
-                <Typography variant="h2" sx={{ mb: 2 }}>
+                <Typography variant="h2" sx={{ mb: 2, fontSize: '3rem' }}>
                   {game.icon}
                 </Typography>
                 <Typography variant="h6" component="div" gutterBottom>
@@ -107,7 +124,7 @@ const HomePage: React.FC = () => {
                     label={game.difficulty === 'easy' ? 'Легко' : 'Средне'}
                     size="small"
                     sx={{
-                      backgroundColor: game.color + '20',
+                      backgroundColor: `${game.color}20`,
                       color: game.color,
                       border: `1px solid ${game.color}40`,
                     }}

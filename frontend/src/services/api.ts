@@ -10,7 +10,6 @@ const api = axios.create({
     'Content-Type': 'application/json',
     'Accept': 'application/json',
   },
-  // Для локальной разработки с CORS
   withCredentials: false,
 });
 
@@ -76,33 +75,79 @@ export interface User {
   joinedAt: string;
 }
 
+export interface GameScore {
+  id: number;
+  user_id: string;
+  game_id: string;
+  score: number;
+  metadata: Record<string, any>;
+  created_at: string;
+  game_title?: string;
+  game_icon?: string;
+}
+
+export interface Achievement {
+  id: number;
+  title: string;
+  description: string;
+  xp_reward: number;
+  game_id: string | null;
+  icon: string;
+  condition_type: string;
+  condition_value: number;
+  is_secret: boolean;
+  unlocked_at?: string;
+}
+
+export interface ApiResponse<T> {
+  success: boolean;
+  data?: T;
+  error?: string;
+  message?: string;
+  count?: number;
+}
+
 // API методы
 export const apiService = {
   // Проверка здоровья сервера
-  checkHealth: async () => {
-    const response = await api.get('/health');
-    return response.data;
+  checkHealth: async (): Promise<ApiResponse<any>> => {
+    try {
+      const response = await api.get('/health');
+      return response.data;
+    } catch (error) {
+      console.error('❌ Error in checkHealth:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Неизвестная ошибка'
+      };
+    }
   },
 
   // Получить все игры
-  getGames: async (): Promise<{ success: boolean; data: Game[]; count: number }> => {
+  getGames: async (): Promise<ApiResponse<Game[]>> => {
     try {
       const response = await api.get('/games');
       return response.data;
     } catch (error) {
-      console.error('❌ Failed to get games:', error);
-      throw error;
+      console.error('❌ Error in getGames:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Неизвестная ошибка'
+      };
     }
   },
 
   // Получить конкретную игру
-  getGame: async (id: string): Promise<{ success: boolean; data: Game }> => {
+  getGame: async (id: string): Promise<ApiResponse<Game>> => {
     try {
       const response = await api.get(`/games/${id}`);
       return response.data;
     } catch (error) {
-      console.error(`❌ Failed to get game ${id}:`, error);
-      throw error;
+      console.error(`❌ Error in getGame ${id}:`, error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Неизвестная ошибка'
+      };
     }
   },
 
@@ -110,30 +155,122 @@ export const apiService = {
   getLeaderboard: async (
     gameId: string, 
     limit?: number
-  ): Promise<{ success: boolean; game_id: string; data: LeaderboardEntry[] }> => {
+  ): Promise<ApiResponse<LeaderboardEntry[]>> => {
     try {
       const params = limit ? { limit } : {};
       const response = await api.get(`/games/${gameId}/leaderboard`, { params });
       return response.data;
     } catch (error) {
-      console.error(`❌ Failed to get leaderboard for ${gameId}:`, error);
-      throw error;
+      console.error(`❌ Error in getLeaderboard for ${gameId}:`, error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Неизвестная ошибка'
+      };
     }
   },
 
   // Получить информацию о пользователе (пока заглушка)
-  getUser: async (): Promise<{ success: boolean; data: User }> => {
+  getUser: async (): Promise<ApiResponse<User>> => {
     try {
       const response = await api.get('/user/me');
       return response.data;
     } catch (error) {
-      console.error('❌ Failed to get user:', error);
-      throw error;
+      console.error('❌ Error in getUser:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Неизвестная ошибка'
+      };
+    }
+  },
+
+  // Сохранить результат игры
+  saveGameScore: async (
+    gameId: string,
+    score: number,
+    metadata?: Record<string, any>
+  ): Promise<ApiResponse<GameScore>> => {
+    try {
+      // Временный userId - позже заменим на реального пользователя
+      const userId = 'guest-123';
+      
+      const response = await api.post(`/games/${gameId}/scores`, {
+        userId,
+        score,
+        metadata: metadata || {}
+      });
+      
+      return response.data;
+    } catch (error) {
+      console.error('❌ Error in saveGameScore:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Не удалось сохранить результат'
+      };
+    }
+  },
+
+  // Получить результаты пользователя
+  getUserScores: async (userId: string, gameId?: string): Promise<ApiResponse<GameScore[]>> => {
+    try {
+      const params = gameId ? { gameId } : {};
+      const response = await api.get(`/users/${userId}/scores`, { params });
+      return response.data;
+    } catch (error) {
+      console.error('❌ Error in getUserScores:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Не удалось загрузить результаты'
+      };
+    }
+  },
+
+  // Получить достижения пользователя
+  getUserAchievements: async (userId: string): Promise<ApiResponse<Achievement[]>> => {
+    try {
+      const response = await api.get(`/users/${userId}/achievements`);
+      return response.data;
+    } catch (error) {
+      console.error('❌ Error in getUserAchievements:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Не удалось загрузить достижения'
+      };
+    }
+  },
+
+  // Обновить информацию о пользователе
+  updateUserStats: async (
+    userId: string, 
+    data: { xp?: number; currency?: number }
+  ): Promise<ApiResponse<User>> => {
+    try {
+      const response = await api.put(`/users/${userId}/stats`, data);
+      return response.data;
+    } catch (error) {
+      console.error('❌ Error in updateUserStats:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Не удалось обновить статистику'
+      };
+    }
+  },
+
+  // Проверить подключение к БД
+  checkDatabase: async (): Promise<ApiResponse<{ current_time: string, postgres_version: string }>> => {
+    try {
+      const response = await api.get('/db-check');
+      return response.data;
+    } catch (error) {
+      console.error('❌ Error in checkDatabase:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Неизвестная ошибка'
+      };
     }
   },
 
   // Дополнительный метод для проверки CORS
-  testCors: async () => {
+  testCors: async (): Promise<{ ok: boolean; status: number; statusText: string }> => {
     try {
       // Простой запрос для проверки CORS
       const response = await fetch(API_BASE_URL + '/health', {

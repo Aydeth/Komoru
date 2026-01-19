@@ -16,6 +16,8 @@
     "@types/react": "^19.2.8",
     "@types/react-dom": "^19.2.3",
     "axios": "^1.13.2",
+    "firebase": "^12.8.0",
+    "phaser": "^3.90.0",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
     "react-router-dom": "^7.12.0",

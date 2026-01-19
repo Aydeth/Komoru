@@ -8,5 +8,4 @@
 - **Хостинг API/БД:** Render.com
 - **Хостинг фронтенда:** Vercel
 - **Аутентификация:** Firebase Auth (Google OAuth)
-- **Игровой движок:** Phaser 3
 ...

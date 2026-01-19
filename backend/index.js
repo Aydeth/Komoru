@@ -13,6 +13,29 @@ app.use(cors({
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'Accept']
 }));
+/*
+const allowedOrigins = [
+  'https://komoru-sage.vercel.app',
+  'https://komoru.vercel.app',
+  'http://localhost:3000'
+];
+
+app.use(cors({
+  origin: function (origin, callback) {
+    // Разрешаем запросы без origin (например, мобильные приложения)
+    if (!origin) return callback(null, true);
+    
+    if (allowedOrigins.indexOf(origin) === -1) {
+      const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
+      return callback(new Error(msg), false);
+    }
+    return callback(null, true);
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept']
+}));
+*/
 app.use(express.json());
 
 // ==================== МАРШРУТЫ API ====================
@@ -168,6 +191,233 @@ app.get('/api/user/me', (req, res) => {
   });
 });
 
+// ==================== API ДЛЯ ИГР ====================
+
+// 7. Сохранить результат игры
+app.post('/api/games/:id/scores', async (req, res) => {
+  try {
+    const { id: gameId } = req.params;
+    const { userId, score, metadata = {} } = req.body;
+
+    // Временная проверка - позже заменим на реальную аутентификацию
+    if (!userId || userId === 'guest-123') {
+      return res.status(400).json({
+        success: false,
+        error: 'Требуется авторизация для сохранения результатов'
+      });
+    }
+
+    // Проверяем, существует ли игра
+    const gameCheck = await db.query(
+      'SELECT id FROM games WHERE id = $1 AND is_active = TRUE',
+      [gameId]
+    );
+
+    if (gameCheck.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Игра не найдена'
+      });
+    }
+
+    // Сохраняем результат
+    const result = await db.query(
+      `INSERT INTO game_scores (user_id, game_id, score, metadata) 
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (user_id, game_id) 
+       DO UPDATE SET 
+         score = GREATEST(game_scores.score, EXCLUDED.score),
+         metadata = EXCLUDED.metadata,
+         created_at = CASE 
+           WHEN EXCLUDED.score > game_scores.score THEN CURRENT_TIMESTAMP 
+           ELSE game_scores.created_at 
+         END
+       RETURNING *`,
+      [userId, gameId, score, JSON.stringify(metadata)]
+    );
+
+    // Проверяем достижения
+    await checkAchievements(userId, gameId, score, metadata);
+
+    // Обновляем общий опыт пользователя
+    await updateUserXP(userId);
+
+    res.json({
+      success: true,
+      data: result.rows[0],
+      message: 'Результат сохранен!'
+    });
+
+  } catch (error) {
+    console.error('❌ Ошибка при сохранении результата:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Не удалось сохранить результат'
+    });
+  }
+});
+
+// 8. Получить результаты пользователя
+app.get('/api/users/:userId/scores', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { gameId } = req.query;
+
+    let query = `
+      SELECT gs.*, g.title as game_title, g.icon as game_icon
+      FROM game_scores gs
+      JOIN games g ON gs.game_id = g.id
+      WHERE gs.user_id = $1
+    `;
+    let params = [userId];
+
+    if (gameId) {
+      query += ' AND gs.game_id = $2';
+      params.push(gameId);
+    }
+
+    query += ' ORDER BY gs.score DESC';
+
+    const result = await db.query(query, params);
+
+    res.json({
+      success: true,
+      count: result.rows.length,
+      data: result.rows
+    });
+
+  } catch (error) {
+    console.error('❌ Ошибка при получении результатов:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Не удалось загрузить результаты'
+    });
+  }
+});
+
+// 9. Получить достижения пользователя
+app.get('/api/users/:userId/achievements', async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    const result = await db.query(
+      `SELECT a.*, ua.unlocked_at
+       FROM achievements a
+       JOIN user_achievements ua ON a.id = ua.achievement_id
+       WHERE ua.user_id = $1
+       ORDER BY ua.unlocked_at DESC`,
+      [userId]
+    );
+
+    res.json({
+      success: true,
+      count: result.rows.length,
+      data: result.rows
+    });
+
+  } catch (error) {
+    console.error('❌ Ошибка при получении достижений:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Не удалось загрузить достижения'
+    });
+  }
+});
+
+// ==================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ====================
+
+// Проверка достижений
+async function checkAchievements(userId, gameId, score, metadata) {
+  try {
+    // Получаем все достижения для этой игры
+    const achievements = await db.query(
+      `SELECT * FROM achievements 
+       WHERE (game_id = $1 OR game_id IS NULL) 
+       AND is_active = TRUE`,
+      [gameId]
+    );
+
+    for (const achievement of achievements.rows) {
+      // Проверяем, получено ли уже достижение
+      const alreadyUnlocked = await db.query(
+        'SELECT 1 FROM user_achievements WHERE user_id = $1 AND achievement_id = $2',
+        [userId, achievement.id]
+      );
+
+      if (alreadyUnlocked.rows.length > 0) continue;
+
+      let shouldUnlock = false;
+
+      // Проверяем условия достижения
+      switch (achievement.condition_type) {
+        case 'score_above':
+          shouldUnlock = score >= achievement.condition_value;
+          break;
+        case 'play_count':
+          // Здесь нужно считать количество игр - упрощенная версия
+          const playCount = metadata.playCount || 1;
+          shouldUnlock = playCount >= achievement.condition_value;
+          break;
+        case 'collection':
+          // Подсчитываем количество достижений пользователя
+          const userAchievements = await db.query(
+            'SELECT COUNT(*) as count FROM user_achievements WHERE user_id = $1',
+            [userId]
+          );
+          shouldUnlock = parseInt(userAchievements.rows[0].count) >= achievement.condition_value;
+          break;
+      }
+
+      if (shouldUnlock) {
+        // Разблокируем достижение
+        await db.query(
+          'INSERT INTO user_achievements (user_id, achievement_id) VALUES ($1, $2)',
+          [userId, achievement.id]
+        );
+
+        // Добавляем опыт пользователю
+        await db.query(
+          'UPDATE users SET total_xp = total_xp + $1 WHERE id = $2',
+          [achievement.xp_reward, userId]
+        );
+
+        console.log(`🏆 Достижение разблокировано: ${achievement.title} для пользователя ${userId}`);
+      }
+    }
+  } catch (error) {
+    console.error('❌ Ошибка при проверке достижений:', error);
+  }
+}
+
+// Обновление опыта и уровня пользователя
+async function updateUserXP(userId) {
+  try {
+    // Получаем текущий опыт пользователя
+    const userResult = await db.query(
+      'SELECT total_xp, level FROM users WHERE id = $1',
+      [userId]
+    );
+
+    if (userResult.rows.length === 0) return;
+
+    const { total_xp, level } = userResult.rows[0];
+    
+    // Формула для уровней: каждый уровень требует на 500 XP больше
+    const xpForNextLevel = level * 500;
+    
+    if (total_xp >= xpForNextLevel) {
+      // Повышаем уровень
+      await db.query(
+        'UPDATE users SET level = level + 1 WHERE id = $1',
+        [userId]
+      );
+      console.log(`📈 Пользователь ${userId} повысил уровень до ${level + 1}`);
+    }
+  } catch (error) {
+    console.error('❌ Ошибка при обновлении опыта:', error);
+  }
+}
+
 // ==================== АДМИН-МАРШРУТЫ (для разработки) ====================
 
 // Маршрут для проверки структуры БД (только для разработки)
@@ -256,6 +506,32 @@ if (process.env.NODE_ENV !== 'production' || process.env.ENABLE_DB_INIT === 'tru
   });
 }
 // =========== КОНЕЦ ОПАСНОГО МАРШРУТА ===========
+
+app.post('/api/users/sync', async (req, res) => {
+  try {
+    const { uid, email, displayName, photoURL } = req.body;
+    
+    // Создаем или обновляем пользователя
+    const result = await db.query(`
+      INSERT INTO users (id, email, username, avatar_url, last_login)
+      VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
+      ON CONFLICT (id) DO UPDATE SET
+        email = EXCLUDED.email,
+        username = EXCLUDED.username,
+        avatar_url = EXCLUDED.avatar_url,
+        last_login = CURRENT_TIMESTAMP
+      RETURNING *
+    `, [uid, email, displayName || 'Игрок', photoURL]);
+    
+    res.json({
+      success: true,
+      data: result.rows[0]
+    });
+  } catch (error) {
+    console.error('Sync user error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
 
 // ==================== ОБРАБОТКА ОШИБОК ====================
 

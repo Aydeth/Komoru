@@ -2,23 +2,26 @@ import React from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { CssBaseline, ThemeProvider, createTheme } from '@mui/material';
 
+// Контексты
+import { AuthProvider } from './contexts/AuthContext';
+
 // Страницы
 import HomePage from './pages/Home/HomePage';
-//import GamePage from './pages/Game/GamePage';
-//import ProfilePage from './pages/Profile/ProfilePage';
+import GamePage from './pages/Game/GamePage';
+import ProfilePage from './pages/Profile/ProfilePage';
 
 // Компоненты
 import Layout from './components/Layout/Layout';
 
-// Тема для минималистичного дизайна
+// Тема
 const theme = createTheme({
   palette: {
     mode: 'light',
     primary: {
-      main: '#2E7D32', // Зеленый как у змейки
+      main: '#2E7D32',
     },
     secondary: {
-      main: '#1565C0', // Синий как у пятнашек
+      main: '#1565C0',
     },
     background: {
       default: '#fafafa',
@@ -37,13 +40,17 @@ function App() {
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
-      <Router>
-        <Layout>
-          <Routes>
-            <Route path="/" element={<HomePage />} />
-          </Routes>
-        </Layout>
-      </Router>
+      <AuthProvider>
+        <Router>
+          <Layout>
+            <Routes>
+              <Route path="/" element={<HomePage />} />
+              <Route path="/game/:id" element={<GamePage />} />
+              <Route path="/profile" element={<ProfilePage />} />
+            </Routes>
+          </Layout>
+        </Router>
+      </AuthProvider>
     </ThemeProvider>
   );
 }
