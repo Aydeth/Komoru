@@ -2,6 +2,8 @@ const express = require('express');
 const cors = require('cors');
 require('dotenv').config();
 const db = require('./db'); // Подключаем нашу базу данных
+require('./firebase-admin');
+const { verifyToken, optionalAuth } = require('./middleware/auth');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -174,38 +176,64 @@ app.get('/api/games/:id/leaderboard', async (req, res) => {
   }
 });
 
-// 6. Информация о пользователе (пока заглушка - потом подключим Firebase)
-app.get('/api/user/me', (req, res) => {
-  // TODO: После подключения Firebase будем получать реального пользователя
-  res.json({
-    success: true,
-    data: {
-      id: 'guest-123',
-      username: 'Гость Komoru',
-      avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=komoru',
-      level: 1,
-      xp: 0,
-      currency: 50,
-      joinedAt: '2024-01-01'
+// 6. Информация о пользователе (РЕАЛЬНАЯ ИЗ БАЗЫ)
+app.get('/api/user/me', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.uid;
+    
+    const result = await db.query(`
+      SELECT 
+        u.*,
+        uc.balance as currency_balance,
+        (SELECT COUNT(*) FROM user_achievements ua WHERE ua.user_id = u.id) as achievements_count,
+        (SELECT COUNT(*) FROM game_scores gs WHERE gs.user_id = u.id) as games_played
+      FROM users u
+      LEFT JOIN user_currency uc ON u.id = uc.user_id
+      WHERE u.id = $1
+    `, [userId]);
+    
+    if (result.rows.length === 0) {
+      // Создаем пользователя, если его нет
+      return res.status(404).json({
+        success: false,
+        error: 'Пользователь не найден. Пожалуйста, синхронизируйтесь через /api/users/sync'
+      });
     }
-  });
+    
+    const user = result.rows[0];
+    
+    res.json({
+      success: true,
+      data: {
+        id: user.id,
+        username: user.username,
+        avatar: user.avatar_url,
+        email: user.email,
+        level: user.level,
+        xp: user.total_xp,
+        currency: user.currency_balance || 0,
+        achievements: user.achievements_count || 0,
+        gamesPlayed: user.games_played || 0,
+        joinedAt: user.created_at
+      }
+    });
+  } catch (error) {
+    console.error('❌ Ошибка при получении пользователя:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Не удалось загрузить информацию о пользователе'
+    });
+  }
 });
 
 // ==================== API ДЛЯ ИГР ====================
 
-// 7. Сохранить результат игры
-app.post('/api/games/:id/scores', async (req, res) => {
+// 7. Сохранить результат игры (ТЕПЕРЬ С АВТОРИЗАЦИЕЙ)
+app.post('/api/games/:id/scores', verifyToken, async (req, res) => {
   try {
     const { id: gameId } = req.params;
-    const { userId, score, metadata = {} } = req.body;
-
-    // Временная проверка - позже заменим на реальную аутентификацию
-    if (!userId || userId === 'guest-123') {
-      return res.status(400).json({
-        success: false,
-        error: 'Требуется авторизация для сохранения результатов'
-      });
-    }
+    const { score, metadata = {} } = req.body;
+    const userId = req.user.uid; // Берем из токена!
 
     // Проверяем, существует ли игра
     const gameCheck = await db.query(
@@ -245,7 +273,8 @@ app.post('/api/games/:id/scores', async (req, res) => {
     res.json({
       success: true,
       data: result.rows[0],
-      message: 'Результат сохранен!'
+      message: 'Результат сохранен!',
+      newRecord: result.rows[0].score === score
     });
 
   } catch (error) {
@@ -507,11 +536,14 @@ if (process.env.NODE_ENV !== 'production' || process.env.ENABLE_DB_INIT === 'tru
 }
 // =========== КОНЕЦ ОПАСНОГО МАРШРУТА ===========
 
-app.post('/api/users/sync', async (req, res) => {
+// Синхронизация пользователя с Firebase
+app.post('/api/users/sync', verifyToken, async (req, res) => {
   try {
-    const { uid, email, displayName, photoURL } = req.body;
+    const { uid, email, name, picture } = req.user;
     
-    // Создаем или обновляем пользователя
+    console.log(`🔄 Синхронизация пользователя: ${email}`);
+    
+    // Создаем или обновляем пользователя в нашей БД
     const result = await db.query(`
       INSERT INTO users (id, email, username, avatar_url, last_login)
       VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
@@ -521,15 +553,27 @@ app.post('/api/users/sync', async (req, res) => {
         avatar_url = EXCLUDED.avatar_url,
         last_login = CURRENT_TIMESTAMP
       RETURNING *
-    `, [uid, email, displayName || 'Игрок', photoURL]);
+    `, [uid, email, name, picture]);
+    
+    // Создаем запись валюты, если её нет
+    await db.query(`
+      INSERT INTO user_currency (user_id, balance)
+      VALUES ($1, 0)
+      ON CONFLICT (user_id) DO NOTHING
+    `, [uid]);
     
     res.json({
       success: true,
-      data: result.rows[0]
+      data: result.rows[0],
+      message: 'Пользователь синхронизирован'
     });
+    
   } catch (error) {
-    console.error('Sync user error:', error);
-    res.status(500).json({ success: false, error: error.message });
+    console.error('❌ Ошибка синхронизации пользователя:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Ошибка синхронизации пользователя'
+    });
   }
 });
 

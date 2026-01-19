@@ -13,6 +13,31 @@ const api = axios.create({
   withCredentials: false,
 });
 
+api.interceptors.request.use(
+  (config) => {
+    console.log(`🌐 ${config.method?.toUpperCase()} ${config.baseURL}${config.url}`);
+    
+    // Добавляем токен из localStorage
+    const userStr = localStorage.getItem('komoru_user');
+    if (userStr) {
+      try {
+        const user = JSON.parse(userStr);
+        if (user.token) {
+          config.headers.Authorization = `Bearer ${user.token}`;
+        }
+      } catch (e) {
+        console.warn('Не удалось распарсить пользователя из localStorage');
+      }
+    }
+    
+    return config;
+  },
+  (error) => {
+    console.error('❌ Request Error:', error);
+    return Promise.reject(error);
+  }
+);
+
 // Добавляем перехватчик для отладки
 api.interceptors.request.use(
   (config) => {
