@@ -16,15 +16,28 @@ const api = axios.create({
 // Перехватчик для добавления токена
 api.interceptors.request.use(
   (config) => {
-    // Добавляем Firebase токен из localStorage
+    // Добавляем Firebase токен из localStorage только для определенных запросов
     const userStr = localStorage.getItem('komoru_user');
+    
     if (userStr) {
       try {
         const user = JSON.parse(userStr);
-        if (user.id && user.id !== 'guest-123') {
-          // Для реальных пользователей добавляем заголовок
+        
+        // Только для запросов данных пользователя добавляем заголовок
+        const userEndpoints = [
+          '/user/me',
+          '/users/current/scores', 
+          '/users/current/achievements'
+        ];
+        
+        const isUserEndpoint = userEndpoints.some(endpoint => 
+          config.url?.includes(endpoint)
+        );
+        
+        if (isUserEndpoint && user.id && user.id !== 'guest-123') {
           config.headers['X-User-ID'] = user.id;
         }
+        
       } catch (e) {
         console.warn('Не удалось распарсить пользователя');
       }

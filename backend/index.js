@@ -8,12 +8,29 @@ const PORT = process.env.PORT || 3001;
 
 // Middleware
 app.use(cors({
-  origin: '*', // РАЗРЕШАЕМ ВСЕ ДОМЕНЫ (для разработки)
-  credentials: false,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Accept']
+  origin: [
+    'https://komoru-sage.vercel.app',
+    'https://komoru.vercel.app',
+    'http://localhost:3000'
+  ],
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: [
+    'Content-Type',
+    'Authorization',
+    'Accept',
+    'Origin',
+    'X-Requested-With',
+    'X-User-ID',
+    'x-user-id',
+    'Access-Control-Allow-Headers'
+  ],
+  exposedHeaders: ['X-User-ID'],
+  maxAge: 86400 // 24 часа
 }));
-app.use(express.json());
+
+// Обработка preflight запросов
+app.options('*', cors());
 
 // Простой middleware для получения userId из заголовков
 const getUserId = (req) => {
