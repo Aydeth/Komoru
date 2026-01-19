@@ -178,23 +178,27 @@ app.get('/api/games/:id/leaderboard', async (req, res) => {
 // ==================== ФУНКЦИЯ ДЛЯ ПОЛУЧЕНИЯ USER ID ====================
 const getUserId = (req) => {
   console.log('🔍 Поиск userId:');
-  console.log('- Headers:', req.headers);
-  console.log('- Query:', req.query);
   
-  // 1. Пробуем получить из заголовка X-User-ID
+  // 1. Пробуем получить из тела запроса (для POST /scores)
+  if (req.body && req.body.userId) {
+    console.log(`✅ Найден в body: ${req.body.userId}`);
+    return req.body.userId;
+  }
+  
+  // 2. Пробуем получить из заголовка X-User-ID
   const userIdFromHeader = req.headers['x-user-id'];
   if (userIdFromHeader) {
     console.log(`✅ Найден в заголовке: ${userIdFromHeader}`);
     return userIdFromHeader;
   }
   
-  // 2. Пробуем получить из query параметра
+  // 3. Пробуем получить из query параметра
   if (req.query.userId) {
     console.log(`✅ Найден в query: ${req.query.userId}`);
     return req.query.userId;
   }
   
-  // 3. По умолчанию - гость
+  // 4. По умолчанию - гость
   console.log('⚠️  UserId не найден, используем гостя');
   return 'guest-123';
 };

@@ -193,30 +193,37 @@ export const apiService = {
 
   // Сохранить результат игры
   saveGameScore: async (
-    gameId: string,
-    score: number,
-    metadata?: Record<string, any>
-  ): Promise<ApiResponse<GameScore>> => {
-    try {
-      const userStr = localStorage.getItem('komoru_user');
-      const userId = userStr ? JSON.parse(userStr).id : 'guest-123';
-      
-      console.log(`💾 Сохранение результата для пользователя: ${userId}`);
-      
-      const response = await api.post(`/games/${gameId}/scores`, {
-        userId,
-        score,
-        metadata: metadata || {}
-      });
-      
-      return response.data;
-    } catch (error) {
-      return {
-        success: false,
-        error: 'Не удалось сохранить результат'
-      };
+  gameId: string,
+  score: number,
+  metadata?: Record<string, any>
+): Promise<ApiResponse<GameScore>> => {
+  try {
+    const userStr = localStorage.getItem('komoru_user');
+    let userId = 'guest-123';
+    
+    if (userStr) {
+      const user = JSON.parse(userStr);
+      userId = user.id || 'guest-123';
     }
-  },
+    
+    console.log(`💾 Сохранение результата для пользователя: ${userId} (игра: ${gameId}, счёт: ${score})`);
+    
+    const response = await api.post(`/games/${gameId}/scores`, {
+      userId,  // Отправляем в теле запроса
+      score,
+      metadata: metadata || {}
+    });
+    
+    console.log('✅ Результат сохранен:', response.data);
+    return response.data;
+  } catch (error: any) {
+    console.error('❌ Ошибка сохранения:', error.response?.data || error.message);
+    return {
+      success: false,
+      error: error.response?.data?.error || 'Не удалось сохранить результат'
+    };
+  }
+},
 
   // Получить результаты пользователя
   getUserScores: async (): Promise<ApiResponse<GameScore[]>> => {
