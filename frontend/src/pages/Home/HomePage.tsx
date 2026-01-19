@@ -168,71 +168,72 @@ const HomePage: React.FC = () => {
             </Typography>
 
             <Box sx={{ 
-              display: 'flex',
-              flexDirection: 'row',
-              flexWrap: 'wrap',
-              gap: 3,
-              justifyContent: { xs: 'center', md: 'flex-start' }
+              display: 'grid', 
+              gridTemplateColumns: { 
+                xs: '1fr', 
+                sm: '1fr 1fr', 
+                md: '1fr 1fr 1fr 1fr' 
+              },
+              gap: 3 
             }}>
               {games.map((game) => (
-                <Box key={game.id} sx={{ width: { xs: '100%', sm: 'calc(50% - 12px)', md: 'calc(25% - 12px)' } }}>
-                  <Card
-                    sx={{
-                      height: '100%',
+                <Card
+                  key={game.id}
+                  sx={{
+                    height: '100%',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    transition: 'transform 0.2s, box-shadow 0.2s',
+                    '&:hover': {
+                      transform: 'translateY(-4px)',
+                      boxShadow: 6,
+                    },
+                    opacity: game.is_active ? 1 : 0.7
+                  }}
+                >
+                  <CardActionArea
+                    onClick={() => handleGameClick(game.id)}
+                    sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}
+                    disabled={!game.is_active}
+                  >
+                    <CardContent sx={{ 
+                      flexGrow: 1, 
+                      textAlign: 'center',
                       display: 'flex',
                       flexDirection: 'column',
-                      transition: 'transform 0.2s, box-shadow 0.2s',
-                      '&:hover': {
-                        transform: 'translateY(-4px)',
-                        boxShadow: 6,
-                      },
-                      opacity: game.is_active ? 1 : 0.7
-                    }}
-                  >
-                    <CardActionArea
-                      onClick={() => handleGameClick(game.id)}
-                      sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}
-                      disabled={!game.is_active}
-                    >
-                      <CardContent sx={{ 
-                        flexGrow: 1, 
-                        textAlign: 'center',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'center'
-                      }}>
-                        <Typography variant="h2" sx={{ mb: 2, fontSize: '3rem' }}>
-                          {game.icon}
-                        </Typography>
-                        <Typography variant="h6" component="div" gutterBottom>
-                          {game.title}
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary" paragraph sx={{ flexGrow: 1 }}>
-                          {game.description}
-                        </Typography>
-                        <Box sx={{ mt: 'auto', width: '100%' }}>
+                      alignItems: 'center'
+                    }}>
+                      <Typography variant="h2" sx={{ mb: 2, fontSize: '3rem' }}>
+                        {game.icon}
+                      </Typography>
+                      <Typography variant="h6" component="div" gutterBottom>
+                        {game.title}
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary" paragraph sx={{ flexGrow: 1 }}>
+                        {game.description}
+                      </Typography>
+                      <Box sx={{ mt: 'auto', width: '100%' }}>
+                        <Chip
+                          label={game.difficulty === 'easy' ? 'Легко' : game.difficulty === 'medium' ? 'Средне' : 'Сложно'}
+                          size="small"
+                          sx={{
+                            backgroundColor: `${game.color}20`,
+                            color: game.color,
+                            border: `1px solid ${game.color}40`,
+                          }}
+                        />
+                        {!game.is_active && (
                           <Chip
-                            label={game.difficulty === 'easy' ? 'Легко' : game.difficulty === 'medium' ? 'Средне' : 'Сложно'}
+                            label="Скоро"
                             size="small"
-                            sx={{
-                              backgroundColor: `${game.color}20`,
-                              color: game.color,
-                              border: `1px solid ${game.color}40`,
-                            }}
+                            color="secondary"
+                            sx={{ ml: 1 }}
                           />
-                          {!game.is_active && (
-                            <Chip
-                              label="Скоро"
-                              size="small"
-                              color="secondary"
-                              sx={{ ml: 1 }}
-                            />
-                          )}
-                        </Box>
-                      </CardContent>
-                    </CardActionArea>
-                  </Card>
-                </Box>
+                        )}
+                      </Box>
+                    </CardContent>
+                  </CardActionArea>
+                </Card>
               ))}
             </Box>
           </Box>
