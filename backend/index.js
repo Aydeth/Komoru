@@ -1,48 +1,44 @@
 const express = require('express');
 const cors = require('cors');
 require('dotenv').config();
-const db = require('./db'); // Подключаем нашу базу данных
+const db = require('./db');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// Middleware
-app.use(cors({
-  origin: [
-    'https://komoru-sage.vercel.app',
-    'https://komoru.vercel.app',
-    'http://localhost:3000'
-  ],
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: [
-    'Content-Type',
-    'Authorization',
-    'Accept',
-    'Origin',
-    'X-Requested-With',
-    'X-User-ID',
-    'x-user-id',
-    'Access-Control-Allow-Headers'
-  ],
-  exposedHeaders: ['X-User-ID'],
-  maxAge: 86400 // 24 часа
-}));
+// ==================== НАСТРОЙКИ CORS ====================
+const allowedOrigins = [
+  'https://komoru-sage.vercel.app',
+  'https://komoru.vercel.app',
+  'http://localhost:3000',
+  'http://localhost:3001'
+];
 
-// Обработка preflight запросов
-app.options('*', cors());
-
-// Простой middleware для получения userId из заголовков
-const getUserId = (req) => {
-  // Пробуем получить из заголовка X-User-ID
-  const userIdFromHeader = req.headers['x-user-id'];
-  if (userIdFromHeader) {
-    return userIdFromHeader;
+// Кастомный CORS middleware
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  
+  // Разрешаем запросы из списка allowedOrigins
+  if (allowedOrigins.includes(origin)) {
+    res.header('Access-Control-Allow-Origin', origin);
   }
   
-  // Или из query параметра
-  return req.query.userId || 'guest-123';
-};
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+  res.header('Access-Control-Allow-Headers', 
+    'Origin, X-Requested-With, Content-Type, Accept, Authorization, X-User-ID, x-user-id'
+  );
+  res.header('Access-Control-Expose-Headers', 'X-User-ID');
+  
+  // Обработка preflight запросов
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+  
+  next();
+});
+
+app.use(express.json());
 
 // ==================== МАРШРУТЫ API ====================
 
@@ -52,7 +48,8 @@ app.get('/api/health', (req, res) => {
     status: 'OK',
     message: 'Komoru API жив и работает! 🎮',
     timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV || 'development'
+    environment: process.env.NODE_ENV || 'development',
+    cors: '✅ Настроен для Vercel'
   });
 });
 
@@ -69,8 +66,7 @@ app.get('/api/db-check', async (req, res) => {
     console.error('❌ Ошибка базы данных:', error);
     res.status(500).json({
       success: false,
-      error: 'Ошибка подключения к базе данных',
-      details: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+      error: 'Ошибка подключения к базе данных'
     });
   }
 });
@@ -95,8 +91,7 @@ app.get('/api/games', async (req, res) => {
     console.error('❌ Ошибка при получении игр:', error);
     res.status(500).json({
       success: false,
-      error: 'Не удалось загрузить игры',
-      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      error: 'Не удалось загрузить игры'
     });
   }
 });
@@ -180,21 +175,111 @@ app.get('/api/games/:id/leaderboard', async (req, res) => {
   }
 });
 
-// 6. Информация о пользователе (пока заглушка - потом подключим Firebase)
-app.get('/api/user/me', (req, res) => {
-  // TODO: После подключения Firebase будем получать реального пользователя
-  res.json({
-    success: true,
-    data: {
-      id: 'guest-123',
-      username: 'Гость Komoru',
-      avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=komoru',
-      level: 1,
-      xp: 0,
-      currency: 50,
-      joinedAt: '2024-01-01'
+// ==================== ФУНКЦИЯ ДЛЯ ПОЛУЧЕНИЯ USER ID ====================
+const getUserId = (req) => {
+  console.log('🔍 Поиск userId:');
+  console.log('- Headers:', req.headers);
+  console.log('- Query:', req.query);
+  
+  // 1. Пробуем получить из заголовка X-User-ID
+  const userIdFromHeader = req.headers['x-user-id'];
+  if (userIdFromHeader) {
+    console.log(`✅ Найден в заголовке: ${userIdFromHeader}`);
+    return userIdFromHeader;
+  }
+  
+  // 2. Пробуем получить из query параметра
+  if (req.query.userId) {
+    console.log(`✅ Найден в query: ${req.query.userId}`);
+    return req.query.userId;
+  }
+  
+  // 3. По умолчанию - гость
+  console.log('⚠️  UserId не найден, используем гостя');
+  return 'guest-123';
+};
+
+// 6. Получить информацию о реальном пользователе
+app.get('/api/user/me', async (req, res) => {
+  try {
+    const userId = getUserId(req);
+    
+    console.log(`👤 Запрос данных пользователя: ${userId}`);
+    
+    if (userId === 'guest-123') {
+      // Гостевой доступ
+      return res.json({
+        success: true,
+        data: {
+          id: 'guest-123',
+          username: 'Гость Komoru',
+          avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=komoru',
+          email: '',
+          level: 1,
+          xp: 0,
+          currency: 0,
+          joinedAt: new Date().toISOString(),
+          gamesPlayed: 0,
+          achievements: 0
+        }
+      });
     }
-  });
+    
+    // Поиск реального пользователя
+    const result = await db.query(`
+      SELECT 
+        u.*,
+        uc.balance as currency,
+        (SELECT COUNT(*) FROM user_achievements ua WHERE ua.user_id = u.id) as achievements_count,
+        (SELECT COUNT(*) FROM game_scores gs WHERE gs.user_id = u.id) as games_played
+      FROM users u
+      LEFT JOIN user_currency uc ON u.id = uc.user_id
+      WHERE u.id = $1
+    `, [userId]);
+    
+    if (result.rows.length === 0) {
+      // Пользователь не найден в нашей БД
+      return res.json({
+        success: true,
+        data: {
+          id: userId,
+          username: 'Новый игрок',
+          avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${userId}`,
+          email: '',
+          level: 1,
+          xp: 0,
+          currency: 0,
+          joinedAt: new Date().toISOString(),
+          gamesPlayed: 0,
+          achievements: 0
+        }
+      });
+    }
+    
+    const user = result.rows[0];
+    
+    res.json({
+      success: true,
+      data: {
+        id: user.id,
+        username: user.username,
+        avatar: user.avatar_url,
+        email: user.email,
+        level: user.level,
+        xp: user.total_xp,
+        currency: user.currency || 0,
+        joinedAt: user.created_at,
+        gamesPlayed: user.games_played || 0,
+        achievements: user.achievements_count || 0
+      }
+    });
+  } catch (error) {
+    console.error('❌ Ошибка при получении пользователя:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Не удалось загрузить информацию о пользователе'
+    });
+  }
 });
 
 // ==================== API ДЛЯ ИГР ====================
@@ -205,7 +290,7 @@ app.post('/api/games/:id/scores', async (req, res) => {
     const { id: gameId } = req.params;
     const { userId, score, metadata = {} } = req.body;
 
-    // Временная проверка - позже заменим на реальную аутентификацию
+    // Временная проверка
     if (!userId || userId === 'guest-123') {
       return res.status(400).json({
         success: false,
@@ -263,35 +348,27 @@ app.post('/api/games/:id/scores', async (req, res) => {
   }
 });
 
-// 8. Получить результаты пользователя
-app.get('/api/users/:userId/scores', async (req, res) => {
+// 8. Получить результаты текущего пользователя
+app.get('/api/users/current/scores', async (req, res) => {
   try {
-    const { userId } = req.params;
-    const { gameId } = req.query;
-
-    let query = `
+    const userId = getUserId(req);
+    
+    console.log(`🎮 Запрос результатов для пользователя: ${userId}`);
+    
+    const result = await db.query(`
       SELECT gs.*, g.title as game_title, g.icon as game_icon
       FROM game_scores gs
       JOIN games g ON gs.game_id = g.id
       WHERE gs.user_id = $1
-    `;
-    let params = [userId];
-
-    if (gameId) {
-      query += ' AND gs.game_id = $2';
-      params.push(gameId);
-    }
-
-    query += ' ORDER BY gs.score DESC';
-
-    const result = await db.query(query, params);
-
+      ORDER BY gs.created_at DESC
+      LIMIT 10
+    `, [userId]);
+    
     res.json({
       success: true,
       count: result.rows.length,
       data: result.rows
     });
-
   } catch (error) {
     console.error('❌ Ошибка при получении результатов:', error);
     res.status(500).json({
@@ -301,26 +378,26 @@ app.get('/api/users/:userId/scores', async (req, res) => {
   }
 });
 
-// 9. Получить достижения пользователя
-app.get('/api/users/:userId/achievements', async (req, res) => {
+// 9. Получить достижения текущего пользователя
+app.get('/api/users/current/achievements', async (req, res) => {
   try {
-    const { userId } = req.params;
-
+    const userId = getUserId(req);
+    
     const result = await db.query(
       `SELECT a.*, ua.unlocked_at
        FROM achievements a
        JOIN user_achievements ua ON a.id = ua.achievement_id
        WHERE ua.user_id = $1
-       ORDER BY ua.unlocked_at DESC`,
+       ORDER BY ua.unlocked_at DESC
+       LIMIT 10`,
       [userId]
     );
-
+    
     res.json({
       success: true,
       count: result.rows.length,
       data: result.rows
     });
-
   } catch (error) {
     console.error('❌ Ошибка при получении достижений:', error);
     res.status(500).json({
@@ -330,14 +407,12 @@ app.get('/api/users/:userId/achievements', async (req, res) => {
   }
 });
 
-// Добавь после существующих маршрутов (после 9-го маршрута)
-
 // 10. Синхронизация пользователя с Firebase
 app.post('/api/users/sync', async (req, res) => {
   try {
     const { uid, email, displayName, photoURL } = req.body;
     
-    console.log(`🔄 Синхронизация пользователя: ${email}`);
+    console.log(`🔄 Синхронизация пользователя: ${email} (${uid})`);
     
     // Создаем или обновляем пользователя в нашей БД
     const result = await db.query(`
@@ -369,148 +444,6 @@ app.post('/api/users/sync', async (req, res) => {
     res.status(500).json({
       success: false,
       error: 'Ошибка синхронизации пользователя'
-    });
-  }
-});
-
-// 11. Получить информацию о реальном пользователе
-app.get('/api/user/me', async (req, res) => {
-  try {
-    const userId = getUserId(req);
-    
-    console.log(`👤 Запрос данных пользователя: ${userId}`);
-    
-    if (userId === 'guest-123') {
-      // Гостевой доступ
-      return res.json({
-        success: true,
-        data: {
-          id: 'guest-123',
-          username: 'Гость Komoru',
-          avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=komoru',
-          email: '',
-          level: 1,
-          xp: 0,
-          currency: 0,
-          joinedAt: new Date().toISOString(),
-          gamesPlayed: 0,
-          achievements: 0
-        }
-      });
-    }
-    
-    // Поиск реального пользователя
-    const result = await db.query(`
-      SELECT 
-        u.*,
-        uc.balance as currency,
-        (SELECT COUNT(*) FROM user_achievements ua WHERE ua.user_id = u.id) as achievements_count,
-        (SELECT COUNT(*) FROM game_scores gs WHERE gs.user_id = u.id) as games_played
-      FROM users u
-      LEFT JOIN user_currency uc ON u.id = uc.user_id
-      WHERE u.id = $1
-    `, [userId]);
-    
-    if (result.rows.length === 0) {
-      // Пользователь не найден в нашей БД (но есть в Firebase)
-      return res.json({
-        success: true,
-        data: {
-          id: userId,
-          username: 'Новый игрок',
-          avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${userId}`,
-          email: '',
-          level: 1,
-          xp: 0,
-          currency: 0,
-          joinedAt: new Date().toISOString(),
-          gamesPlayed: 0,
-          achievements: 0
-        }
-      });
-    }
-    
-    const user = result.rows[0];
-    
-    res.json({
-      success: true,
-      data: {
-        id: user.id,
-        username: user.username,
-        avatar: user.avatar_url,
-        email: user.email,
-        level: user.level,
-        xp: user.total_xp,
-        currency: user.currency || 0,
-        joinedAt: user.created_at,
-        gamesPlayed: user.games_played || 0,
-        achievements: user.achievements_count || 0
-      }
-    });
-  } catch (error) {
-    console.error('❌ Ошибка при получении пользователя:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Не удалось загрузить информацию о пользователе'
-    });
-  }
-});
-
-// 12. Получить результаты текущего пользователя
-app.get('/api/users/current/scores', async (req, res) => {
-  try {
-    const userId = getUserId(req);
-    
-    console.log(`🎮 Запрос результатов для пользователя: ${userId}`);
-    
-    const result = await db.query(`
-      SELECT gs.*, g.title as game_title, g.icon as game_icon
-      FROM game_scores gs
-      JOIN games g ON gs.game_id = g.id
-      WHERE gs.user_id = $1
-      ORDER BY gs.created_at DESC
-      LIMIT 10
-    `, [userId]);
-    
-    res.json({
-      success: true,
-      count: result.rows.length,
-      data: result.rows
-    });
-  } catch (error) {
-    console.error('❌ Ошибка при получении результатов:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Не удалось загрузить результаты'
-    });
-  }
-});
-
-// 13. Получить достижения текущего пользователя
-app.get('/api/users/current/achievements', async (req, res) => {
-  try {
-    const userId = getUserId(req);
-    
-    const result = await db.query(
-      `SELECT a.*, ua.unlocked_at
-       FROM achievements a
-       JOIN user_achievements ua ON a.id = ua.achievement_id
-       WHERE ua.user_id = $1
-       ORDER BY ua.unlocked_at DESC
-       LIMIT 10`,
-      [userId]
-    );
-    
-    res.json({
-      success: true,
-      count: result.rows.length,
-      data: result.rows
-    });
-  } catch (error) {
-    console.error('❌ Ошибка при получении достижений:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Не удалось загрузить достижения'
     });
   }
 });
@@ -615,9 +548,12 @@ app.listen(PORT, () => {
 ✨✨✨✨✨✨✨✨✨✨✨✨✨✨✨✨✨✨
 🚀  Komoru Backend запущен!
 📍  Порт: ${PORT}
-🔗  Локально: http://localhost:${PORT}
-📊  Проверка: http://localhost:${PORT}/api/health
-📊  Проверка БД: http://localhost:${PORT}/api/db-check
+🌍  Разрешённые домены:
+   - https://komoru-sage.vercel.app
+   - https://komoru.vercel.app  
+   - http://localhost:3000
+   - http://localhost:3001
+📊  Проверка: https://komoru-api.onrender.com/api/health
 🕐  Время запуска: ${new Date().toLocaleTimeString()}
 ✨✨✨✨✨✨✨✨✨✨✨✨✨✨✨✨✨✨
   `);

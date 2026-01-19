@@ -13,17 +13,17 @@ const api = axios.create({
   withCredentials: false,
 });
 
-// Перехватчик для добавления токена
+// Перехватчик для добавления userId как query параметра
 api.interceptors.request.use(
   (config) => {
-    // Добавляем Firebase токен из localStorage только для определенных запросов
+    // Добавляем userId как query параметр только для user endpoints
     const userStr = localStorage.getItem('komoru_user');
     
     if (userStr) {
       try {
         const user = JSON.parse(userStr);
         
-        // Только для запросов данных пользователя добавляем заголовок
+        // Только для запросов данных пользователя
         const userEndpoints = [
           '/user/me',
           '/users/current/scores', 
@@ -35,11 +35,15 @@ api.interceptors.request.use(
         );
         
         if (isUserEndpoint && user.id && user.id !== 'guest-123') {
-          config.headers['X-User-ID'] = user.id;
+          // Добавляем как query параметр (безопаснее для CORS)
+          config.params = {
+            ...config.params,
+            userId: user.id
+          };
         }
         
       } catch (e) {
-        console.warn('Не удалось распарсить пользователя');
+        console.warn('⚠️ Не удалось распарсить пользователя');
       }
     }
     
@@ -172,7 +176,7 @@ export const apiService = {
     }
   },
 
-  // Получить информацию о пользователе (РЕАЛЬНЫЙ ЗАПРОС)
+  // Получить информацию о пользователе
   getUser: async (): Promise<ApiResponse<User>> => {
     try {
       const response = await api.get('/user/me');
@@ -187,14 +191,13 @@ export const apiService = {
     }
   },
 
-  // Сохранить результат игры (для реального пользователя)
+  // Сохранить результат игры
   saveGameScore: async (
     gameId: string,
     score: number,
     metadata?: Record<string, any>
   ): Promise<ApiResponse<GameScore>> => {
     try {
-      // Получаем userId из localStorage
       const userStr = localStorage.getItem('komoru_user');
       const userId = userStr ? JSON.parse(userStr).id : 'guest-123';
       
@@ -215,7 +218,7 @@ export const apiService = {
     }
   },
 
-  // Получить результаты пользователя (РЕАЛЬНЫЙ ЗАПРОС)
+  // Получить результаты пользователя
   getUserScores: async (): Promise<ApiResponse<GameScore[]>> => {
     try {
       const response = await api.get('/users/current/scores');
@@ -230,7 +233,7 @@ export const apiService = {
     }
   },
 
-  // Получить достижения пользователя (РЕАЛЬНЫЙ ЗАПРОС)
+  // Получить достижения пользователя
   getUserAchievements: async (): Promise<ApiResponse<Achievement[]>> => {
     try {
       const response = await api.get('/users/current/achievements');
