@@ -17,7 +17,6 @@ import {
   Container,
   Alert,
   CircularProgress,
-  Grid,
 } from '@mui/material';
 import {
   EmojiEvents,
@@ -57,46 +56,46 @@ const ProfilePage: React.FC = () => {
   }, [authUser]);
 
   const loadUserData = async () => {
-    try {
-      setLoading(true);
+  try {
+    setLoading(true);
+    
+    // Загружаем реальные данные пользователя
+    const userResponse = await apiService.getUser();
+    if (userResponse.success && userResponse.data) {
+      setUser(userResponse.data);
       
-      // Загружаем данные пользователя
-      const userResponse = await apiService.getUser();
-      if (userResponse.success && userResponse.data) {
-        setUser(userResponse.data);
+      // Загружаем реальные результаты игр
+      const scoresResponse = await apiService.getUserScores();
+      if (scoresResponse.success && scoresResponse.data) {
+        setScores(scoresResponse.data);
         
-        // Загружаем результаты игр
-        const scoresResponse = await apiService.getUserScores();
-        if (scoresResponse.success && scoresResponse.data) {
-          setScores(scoresResponse.data);
-          
-          // Рассчитываем статистику
-          const total = scoresResponse.data.reduce((sum, score) => sum + score.score, 0);
-          const bestGame = scoresResponse.data.reduce((best, score) => 
-            score.score > best.score ? { game: score.game_title || score.game_id, score: score.score } : best,
-            { game: '', score: 0 }
-          );
-          
-          setStats({
-            totalScore: total,
-            bestGame,
-            gamesPlayed: scoresResponse.data.length,
-            achievementsCount: userResponse.data.achievements || 0,
-          });
-        }
+        // Рассчитываем статистику из реальных данных
+        const total = scoresResponse.data.reduce((sum, score) => sum + score.score, 0);
+        const bestGame = scoresResponse.data.reduce((best, score) => 
+          score.score > best.score ? { game: score.game_title || score.game_id, score: score.score } : best,
+          { game: '', score: 0 }
+        );
         
-        // Загружаем достижения
-        const achievementsResponse = await apiService.getUserAchievements();
-        if (achievementsResponse.success && achievementsResponse.data) {
-          setAchievements(achievementsResponse.data);
-        }
+        setStats({
+          totalScore: total,
+          bestGame,
+          gamesPlayed: userResponse.data.gamesPlayed || 0,
+          achievementsCount: userResponse.data.achievements || 0,
+        });
       }
-    } catch (error) {
-      console.error('Error loading user data:', error);
-    } finally {
-      setLoading(false);
+      
+      // Загружаем реальные достижения
+      const achievementsResponse = await apiService.getUserAchievements();
+      if (achievementsResponse.success && achievementsResponse.data) {
+        setAchievements(achievementsResponse.data);
+      }
     }
-  };
+  } catch (error) {
+    console.error('Error loading user data:', error);
+  } finally {
+    setLoading(false);
+  }
+};
 
   const handleLogin = async () => {
     try {
