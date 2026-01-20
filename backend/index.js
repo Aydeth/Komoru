@@ -481,60 +481,56 @@ app.get('/api/achievements', async (req, res) => {
     
     console.log(`📊 Запрос всех достижений для пользователя: ${userId}${game_id ? `, игра: ${game_id}` : ''}`);
     
-    // Базовый запрос
+    // СНАЧАЛА ПРОСТОЙ ЗАПРОС БЕЗ СЛОЖНОЙ ЛОГИКИ
+    const testQuery = await db.query('SELECT COUNT(*) as count FROM achievements');
+    console.log(`✅ В таблице achievements: ${testQuery.rows[0].count} записей`);
+    
+    // Базовый запрос (упрощённый)
     let query = `
       SELECT 
-        a.*,
+        a.id,
+        a.title,
+        a.description,
+        a.xp_reward,
+        a.icon,
+        a.game_id,
+        a.achievement_type,
+        a.is_hidden,
         g.title as game_title,
-        g.icon as game_icon,
-        CASE 
-          WHEN ua.user_id IS NOT NULL THEN TRUE 
-          ELSE FALSE 
-        END as unlocked,
-        ua.unlocked_at
+        g.icon as game_icon
       FROM achievements a
       LEFT JOIN games g ON a.game_id = g.id
-      LEFT JOIN user_achievements ua ON a.id = ua.achievement_id AND ua.user_id = $1
       WHERE a.is_active = TRUE
+      ORDER BY a.sort_order ASC
+      LIMIT 10
     `;
     
-    const params = [userId];
+    const result = await db.query(query);
     
-    // Фильтр по игре
-    if (game_id) {
-      query += ` AND (a.game_id = $2 OR a.game_id IS NULL)`;
-      params.push(game_id);
-    }
+    console.log(`✅ Найдено достижений: ${result.rows.length}`);
     
-    // Не показываем скрытые достижения, если они не разблокированы
-    query += ` AND (a.is_hidden = FALSE OR ua.user_id IS NOT NULL)`;
-    
-    // Сортировка
-    query += ` ORDER BY a.sort_order ASC, a.id ASC`;
-    
-    const result = await db.query(query, params);
-    
-    // Группируем по статусу
-    const grouped = {
-      unlocked: result.rows.filter(row => row.unlocked),
-      locked: result.rows.filter(row => !row.unlocked)
-    };
-    
+    // Просто возвращаем всё пока
     res.json({
       success: true,
       data: {
         total: result.rows.length,
-        unlocked: grouped.unlocked.length,
-        locked: grouped.locked.length,
-        achievements: grouped
+        achievements: result.rows
+      },
+      debug: {
+        userId: userId,
+        tableCount: testQuery.rows[0].count
       }
     });
     
   } catch (error) {
-    console.error('❌ Ошибка при получении достижений:', error);
+    console.error('❌ Ошибка при получении достижений:', error.message);
+    console.error('Stack trace:', error.stack);
+    
     res.status(500).json({
       success: false,
-      error: 'Не удалось загрузить достижения'
+      error: 'Не удалось загрузить достижения',
+      details: process.env.NODE_ENV === 'production' ? undefined : error.message,
+      stack: process.env.NODE_ENV === 'production' ? undefined : error.stack
     });
   }
 });
