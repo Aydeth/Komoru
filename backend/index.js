@@ -288,23 +288,26 @@ app.get('/api/user/me', async (req, res) => {
 
 // ==================== API ДЛЯ ИГР ====================
 
-// 7. Сохранить результат игры
+// 7. Сохранить результат игры (с возвратом разблокированных достижений)
 app.post('/api/games/:id/scores', async (req, res) => {
   try {
     const { id: gameId } = req.params;
     const { userId, score, metadata = {} } = req.body;
 
-    // Временная проверка
+    console.log(`🎮 Сохранение результата: пользователь ${userId}, игра ${gameId}, счёт ${score}`);
+
+    // Проверка авторизации
     if (!userId || userId === 'guest-123') {
-      return res.status(400).json({
+      return res.status(401).json({
         success: false,
-        error: 'Требуется авторизация для сохранения результатов'
+        error: 'Требуется авторизация для сохранения результатов',
+        code: 'AUTH_REQUIRED'
       });
     }
 
     // Проверяем, существует ли игра
     const gameCheck = await db.query(
-      'SELECT id FROM games WHERE id = $1 AND is_active = TRUE',
+      'SELECT id, title FROM games WHERE id = $1 AND is_active = TRUE',
       [gameId]
     );
 
@@ -314,6 +317,8 @@ app.post('/api/games/:id/scores', async (req, res) => {
         error: 'Игра не найдена'
       });
     }
+
+    const gameTitle = gameCheck.rows[0].title;
 
     // Сохраняем результат
     const result = await db.query(
@@ -331,23 +336,39 @@ app.post('/api/games/:id/scores', async (req, res) => {
       [userId, gameId, score, JSON.stringify(metadata)]
     );
 
-    // Проверяем достижения
-    await checkAchievements(userId, gameId, score, metadata);
+    // Проверяем достижения и получаем информацию о разблокированном
+    const unlockedAchievement = await checkAchievements(userId, gameId, score, metadata);
 
     // Обновляем общий опыт пользователя
     await updateUserXP(userId);
 
-    res.json({
+    // Получаем обновлённый опыт пользователя
+    const userResult = await db.query(
+      'SELECT level, total_xp FROM users WHERE id = $1',
+      [userId]
+    );
+
+    const response = {
       success: true,
       data: result.rows[0],
-      message: 'Результат сохранен!'
-    });
+      message: `Результат сохранен! Вы набрали ${score} очков в "${gameTitle}"`,
+      user: userResult.rows[0] || null
+    };
+
+    // Добавляем информацию о разблокированном достижении, если есть
+    if (unlockedAchievement) {
+      response.unlocked_achievement = unlockedAchievement;
+      response.message += ` 🎉 Получено достижение: ${unlockedAchievement.title}!`;
+    }
+
+    res.json(response);
 
   } catch (error) {
     console.error('❌ Ошибка при сохранении результата:', error);
     res.status(500).json({
       success: false,
-      error: 'Не удалось сохранить результат'
+      error: 'Не удалось сохранить результат',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });
@@ -452,68 +473,275 @@ app.post('/api/users/sync', async (req, res) => {
   }
 });
 
+// 11. Получить ВСЕ достижения (для отображения в модальном окне)
+app.get('/api/achievements', async (req, res) => {
+  try {
+    const userId = getUserId(req);
+    const { game_id } = req.query;
+    
+    console.log(`📊 Запрос всех достижений для пользователя: ${userId}${game_id ? `, игра: ${game_id}` : ''}`);
+    
+    // Базовый запрос
+    let query = `
+      SELECT 
+        a.*,
+        g.title as game_title,
+        g.icon as game_icon,
+        CASE 
+          WHEN ua.user_id IS NOT NULL THEN TRUE 
+          ELSE FALSE 
+        END as unlocked,
+        ua.unlocked_at
+      FROM achievements a
+      LEFT JOIN games g ON a.game_id = g.id
+      LEFT JOIN user_achievements ua ON a.id = ua.achievement_id AND ua.user_id = $1
+      WHERE a.is_active = TRUE
+    `;
+    
+    const params = [userId];
+    
+    // Фильтр по игре
+    if (game_id) {
+      query += ` AND (a.game_id = $2 OR a.game_id IS NULL)`;
+      params.push(game_id);
+    }
+    
+    // Не показываем скрытые достижения, если они не разблокированы
+    query += ` AND (a.is_hidden = FALSE OR ua.user_id IS NOT NULL)`;
+    
+    // Сортировка
+    query += ` ORDER BY a.sort_order ASC, a.id ASC`;
+    
+    const result = await db.query(query, params);
+    
+    // Группируем по статусу
+    const grouped = {
+      unlocked: result.rows.filter(row => row.unlocked),
+      locked: result.rows.filter(row => !row.unlocked)
+    };
+    
+    res.json({
+      success: true,
+      data: {
+        total: result.rows.length,
+        unlocked: grouped.unlocked.length,
+        locked: grouped.locked.length,
+        achievements: grouped
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ Ошибка при получении достижений:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Не удалось загрузить достижения'
+    });
+  }
+});
+
+// 12. Получить последние полученные достижения (для блока в профиле)
+app.get('/api/users/current/achievements/latest', async (req, res) => {
+  try {
+    const userId = getUserId(req);
+    const limit = parseInt(req.query.limit) || 3;
+    
+    console.log(`🆕 Последние достижения для пользователя: ${userId}, лимит: ${limit}`);
+    
+    const result = await db.query(
+      `SELECT 
+        a.*,
+        ua.unlocked_at,
+        g.title as game_title
+      FROM achievements a
+      JOIN user_achievements ua ON a.id = ua.achievement_id
+      LEFT JOIN games g ON a.game_id = g.id
+      WHERE ua.user_id = $1
+      ORDER BY ua.unlocked_at DESC
+      LIMIT $2`,
+      [userId, limit]
+    );
+    
+    res.json({
+      success: true,
+      data: result.rows,
+      count: result.rows.length
+    });
+    
+  } catch (error) {
+    console.error('❌ Ошибка при получении последних достижений:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Не удалось загрузить последние достижения'
+    });
+  }
+});
+
 // ==================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ====================
 
-// Проверка достижений
+// ==================== УЛУЧШЕННАЯ ФУНКЦИЯ ПРОВЕРКИ ДОСТИЖЕНИЙ ====================
 async function checkAchievements(userId, gameId, score, metadata) {
   try {
-    // Получаем все достижения для этой игры
-    const achievements = await db.query(
-      `SELECT * FROM achievements 
-       WHERE (game_id = $1 OR game_id IS NULL) 
-       AND is_active = TRUE`,
-      [gameId]
+    console.log(`🏆 Проверка достижений для пользователя ${userId}, игра ${gameId}, счёт ${score}`);
+    
+    // Получаем текущего пользователя
+    const userResult = await db.query(
+      'SELECT level, total_xp FROM users WHERE id = $1',
+      [userId]
     );
-
+    
+    if (userResult.rows.length === 0) {
+      console.log(`⚠️  Пользователь ${userId} не найден`);
+      return;
+    }
+    
+    const userLevel = userResult.rows[0].level;
+    
+    // Получаем ВСЕ достижения (кроме скрытых, если пользователь их ещё не получил)
+    const achievements = await db.query(`
+      SELECT a.* 
+      FROM achievements a
+      WHERE a.is_active = TRUE
+      AND (
+        a.game_id = $1 
+        OR a.game_id IS NULL
+        OR a.achievement_type IN ('progressive', 'chain', 'one_time', 'secret')
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM user_achievements ua 
+        WHERE ua.user_id = $2 AND ua.achievement_id = a.id
+      )
+    `, [gameId, userId]);
+    
+    console.log(`🔍 Проверяем ${achievements.rows.length} возможных достижений`);
+    
+    // Получаем статистику пользователя для прогрессивных достижений
+    const userStats = await db.query(`
+      SELECT 
+        COUNT(DISTINCT gs.game_id) as games_played_count,
+        COUNT(*) as total_games,
+        SUM(gs.score) as total_score,
+        COUNT(DISTINCT ua.achievement_id) as achievements_count
+      FROM users u
+      LEFT JOIN game_scores gs ON u.id = gs.user_id
+      LEFT JOIN user_achievements ua ON u.id = ua.user_id
+      WHERE u.id = $1
+      GROUP BY u.id
+    `, [userId]);
+    
+    const stats = userStats.rows[0] || {
+      games_played_count: 0,
+      total_games: 0,
+      total_score: 0,
+      achievements_count: 0
+    };
+    
+    // Проверяем время (для секретного достижения "Полуночник")
+    const currentHour = new Date().getHours();
+    const isNightTime = currentHour >= 0 && currentHour < 5;
+    
     for (const achievement of achievements.rows) {
-      // Проверяем, получено ли уже достижение
-      const alreadyUnlocked = await db.query(
-        'SELECT 1 FROM user_achievements WHERE user_id = $1 AND achievement_id = $2',
-        [userId, achievement.id]
-      );
-
-      if (alreadyUnlocked.rows.length > 0) continue;
-
       let shouldUnlock = false;
-
+      let unlockReason = '';
+      
       // Проверяем условия достижения
       switch (achievement.condition_type) {
         case 'score_above':
           shouldUnlock = score >= achievement.condition_value;
+          unlockReason = `Счёт ${score} >= ${achievement.condition_value}`;
           break;
+          
         case 'play_count':
-          // Здесь нужно считать количество игр - упрощенная версия
-          const playCount = metadata.playCount || 1;
-          shouldUnlock = playCount >= achievement.condition_value;
+          shouldUnlock = (stats.total_games || 0) >= achievement.condition_value;
+          unlockReason = `Игр сыграно ${stats.total_games} >= ${achievement.condition_value}`;
           break;
+          
         case 'collection':
-          // Подсчитываем количество достижений пользователя
-          const userAchievements = await db.query(
-            'SELECT COUNT(*) as count FROM user_achievements WHERE user_id = $1',
-            [userId]
-          );
-          shouldUnlock = parseInt(userAchievements.rows[0].count) >= achievement.condition_value;
+          shouldUnlock = stats.achievements_count >= achievement.condition_value;
+          unlockReason = `Достижений ${stats.achievements_count} >= ${achievement.condition_value}`;
+          break;
+          
+        case 'streak_days':
+          // Упрощённая версия - считаем что есть streak
+          const hasStreak = metadata?.streak_days >= achievement.condition_value;
+          shouldUnlock = hasStreak;
+          unlockReason = `Стрик дней ${metadata?.streak_days || 0} >= ${achievement.condition_value}`;
+          break;
+          
+        case 'accuracy_above':
+          const accuracy = metadata?.accuracy || 0;
+          shouldUnlock = accuracy >= achievement.condition_value;
+          unlockReason = `Точность ${accuracy}% >= ${achievement.condition_value}%`;
+          break;
+          
+        case 'play_at_night':
+          shouldUnlock = isNightTime;
+          unlockReason = `Игра ночью (${currentHour}:00)`;
+          break;
+          
+        case 'perfect_game':
+          const isPerfect = metadata?.perfect_game || (metadata?.errors === 0);
+          shouldUnlock = isPerfect;
+          unlockReason = 'Игра без ошибок';
+          break;
+          
+        case 'level_reached':
+          shouldUnlock = userLevel >= achievement.condition_value;
+          unlockReason = `Уровень ${userLevel} >= ${achievement.condition_value}`;
+          break;
+          
+        case 'time_under':
+          const gameTime = metadata?.time || 0;
+          shouldUnlock = gameTime <= achievement.condition_value;
+          unlockReason = `Время ${gameTime}сек <= ${achievement.condition_value}сек`;
+          break;
+          
+        case 'difficulty_complete':
+          const difficultyLevel = metadata?.difficulty || 0;
+          shouldUnlock = difficultyLevel >= achievement.condition_value;
+          unlockReason = `Сложность ${difficultyLevel} >= ${achievement.condition_value}`;
           break;
       }
-
+      
       if (shouldUnlock) {
         // Разблокируем достижение
         await db.query(
           'INSERT INTO user_achievements (user_id, achievement_id) VALUES ($1, $2)',
           [userId, achievement.id]
         );
-
+        
         // Добавляем опыт пользователю
         await db.query(
           'UPDATE users SET total_xp = total_xp + $1 WHERE id = $2',
           [achievement.xp_reward, userId]
         );
-
-        console.log(`🏆 Достижение разблокировано: ${achievement.title} для пользователя ${userId}`);
+        
+        console.log(`🎉 Достижение разблокировано: ${achievement.title} (${achievement.achievement_type})`);
+        console.log(`   Причина: ${unlockReason}`);
+        console.log(`   Награда: +${achievement.xp_reward} XP`);
+        
+        // Проверяем, нужно ли повысить уровень
+        await updateUserXP(userId);
+        
+        // Возвращаем информацию о разблокированном достижении
+        // (Это будет использоваться для попапа на фронтенде)
+        return {
+          id: achievement.id,
+          title: achievement.title,
+          icon: achievement.icon,
+          xp_reward: achievement.xp_reward,
+          achievement_type: achievement.achievement_type,
+          is_secret: achievement.is_hidden
+        };
       }
     }
+    
+    console.log('📭 Новых достижений не разблокировано');
+    return null;
+    
   } catch (error) {
-    console.error('❌ Ошибка при проверке достижений:', error);
+    console.error('❌ Ошибка при проверке достижений:', error.message);
+    console.error(error.stack);
+    return null;
   }
 }
 

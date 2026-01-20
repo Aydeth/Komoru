@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js",
-    "init-db": "node db/init-db.js"
+    "init-db": "node db/init-db.js",
+    "update-db": "node db/update-db.js"
   },
   "keywords": [
     "games",
