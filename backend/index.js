@@ -485,30 +485,54 @@ app.post('/api/users/sync', async (req, res) => {
   }
 });
 
-// 11. Получить ВСЕ достижения (универсальная версия)
+// 11. Получить ВСЕ достижения (РАБОЧАЯ универсальная версия)
 app.get('/api/achievements', async (req, res) => {
+  let client;
   try {
     const userId = getUserId(req);
     const { game_id } = req.query;
     
     console.log(`📊 Запрос достижений для: ${userId}${game_id ? `, игра: ${game_id}` : ''}`);
     
-    // 1. Сначала проверяем структуру БД
-    const tableInfo = await db.query(`
-      SELECT column_name 
-      FROM information_schema.columns 
-      WHERE table_name = 'achievements'
+    // Получаем клиент для транзакции
+    client = await db.pool.connect();
+    
+    // 1. Сначала простейший запрос чтобы проверить таблицу
+    const tableCheck = await client.query(`
+      SELECT id, title, xp_reward, icon, game_id 
+      FROM achievements 
+      WHERE is_active = TRUE
+      LIMIT 5
     `);
     
-    const existingColumns = tableInfo.rows.map(row => row.column_name);
-    console.log('📋 Колонки в achievements:', existingColumns);
+    console.log(`✅ Таблица существует, записей: ${tableCheck.rows.length}`);
     
-    const hasAchievementType = existingColumns.includes('achievement_type');
-    const hasSortOrder = existingColumns.includes('sort_order');
-    const hasIsHidden = existingColumns.includes('is_hidden');
+    // 2. Получаем структуру таблицы
+    let hasAchievementType = false;
+    let hasSortOrder = false;
+    let hasIsHidden = false;
     
-    // 2. Строим динамический SELECT
-    let selectParts = [
+    try {
+      const columnsCheck = await client.query(`
+        SELECT column_name 
+        FROM information_schema.columns 
+        WHERE table_name = 'achievements'
+      `);
+      
+      const existingColumns = columnsCheck.rows.map(row => row.column_name);
+      console.log('📋 Колонки в achievements:', existingColumns);
+      
+      hasAchievementType = existingColumns.includes('achievement_type');
+      hasSortOrder = existingColumns.includes('sort_order');
+      hasIsHidden = existingColumns.includes('is_hidden');
+      
+    } catch (err) {
+      console.log('⚠️  Не удалось проверить колонки:', err.message);
+      // Продолжаем со значениями по умолчанию
+    }
+    
+    // 3. Строим БЕЗОПАСНЫЙ запрос
+    const selectFields = [
       'a.id',
       'a.title',
       'a.description',
@@ -520,84 +544,81 @@ app.get('/api/achievements', async (req, res) => {
       'a.is_active'
     ];
     
-    // Добавляем новые колонки если они есть
-    if (hasAchievementType) selectParts.push('a.achievement_type');
-    if (hasSortOrder) selectParts.push('a.sort_order');
-    if (hasIsHidden) selectParts.push('a.is_hidden');
+    if (hasAchievementType) {
+      selectFields.push('a.achievement_type');
+    } else {
+      selectFields.push("'game' as achievement_type");
+    }
     
-    // Если колонок нет - добавляем дефолтные значения
-    if (!hasAchievementType) selectParts.push("'game' as achievement_type");
-    if (!hasSortOrder) selectParts.push('0 as sort_order');
-    if (!hasIsHidden) selectParts.push('false as is_hidden');
+    if (hasSortOrder) {
+      selectFields.push('a.sort_order');
+    } else {
+      selectFields.push('0 as sort_order');
+    }
     
-    const selectFields = selectParts.join(', ');
+    if (hasIsHidden) {
+      selectFields.push('a.is_hidden');
+    } else {
+      selectFields.push('false as is_hidden');
+    }
     
-    // 3. Строим основной запрос
+    // 4. Основной запрос (максимально простой)
     let query = `
-      SELECT ${selectFields}
+      SELECT ${selectFields.join(', ')}
       FROM achievements a
       LEFT JOIN games g ON a.game_id = g.id
       WHERE a.is_active = TRUE
     `;
     
     const params = [];
-    let paramIndex = 1;
     
     if (game_id) {
-      query += ` AND (a.game_id = $${paramIndex} OR a.game_id IS NULL)`;
+      query += ` AND (a.game_id = $1 OR a.game_id IS NULL)`;
       params.push(game_id);
-      paramIndex++;
     }
     
-    // Сортировка в зависимости от наличия sort_order
-    if (hasSortOrder) {
-      query += ` ORDER BY a.sort_order ASC, a.id ASC`;
-    } else {
-      query += ` ORDER BY a.id ASC`;
-    }
+    query += ` ORDER BY ${hasSortOrder ? 'a.sort_order ASC, ' : ''}a.id ASC`;
     
-    console.log(`📝 SQL запрос (первые 100 символов): ${query.substring(0, 100)}...`);
+    console.log(`📝 Выполняем безопасный запрос`);
+    const result = await client.query(query, params);
     
-    // 4. Выполняем запрос
-    const result = await db.query(query, params);
-    
-    console.log(`✅ Найдено достижений: ${result.rows.length}`);
-    
-    // 5. Определяем разблокированные достижения
+    // 5. Получаем разблокированные достижения пользователя
     let unlockedIds = [];
     if (userId && userId !== 'guest-123') {
-      const unlockedResult = await db.query(
-        'SELECT achievement_id FROM user_achievements WHERE user_id = $1',
-        [userId]
-      );
-      unlockedIds = unlockedResult.rows.map(row => row.achievement_id);
-      console.log(`🔓 Пользователь разблокировал: ${unlockedIds.length} достижений`);
+      try {
+        const unlockedResult = await client.query(
+          'SELECT achievement_id FROM user_achievements WHERE user_id = $1',
+          [userId]
+        );
+        unlockedIds = unlockedResult.rows.map(row => row.achievement_id);
+      } catch (err) {
+        console.log('⚠️  Не удалось получить разблокированные достижения:', err.message);
+      }
     }
     
     // 6. Формируем ответ
-    const achievements = result.rows.map(achievement => {
-      const unlocked = unlockedIds.includes(achievement.id);
-      const isSecret = hasIsHidden ? achievement.is_hidden : false;
+    const achievements = result.rows.map(row => {
+      const unlocked = unlockedIds.includes(row.id);
+      const isSecret = hasIsHidden ? row.is_hidden : false;
       const isVisible = !isSecret || unlocked;
       
       return {
-        id: achievement.id,
-        title: achievement.title,
-        description: achievement.description,
-        xp_reward: achievement.xp_reward,
-        icon: achievement.icon,
-        game_id: achievement.game_id,
-        game_title: achievement.game_title,
-        game_icon: achievement.game_icon,
-        achievement_type: hasAchievementType ? achievement.achievement_type : 'game',
-        sort_order: hasSortOrder ? achievement.sort_order : 0,
-        is_hidden: hasIsHidden ? achievement.is_hidden : false,
+        id: row.id,
+        title: row.title,
+        description: row.description,
+        xp_reward: row.xp_reward,
+        icon: row.icon,
+        game_id: row.game_id,
+        game_title: row.game_title,
+        game_icon: row.game_icon,
+        achievement_type: hasAchievementType ? row.achievement_type : 'game',
+        sort_order: hasSortOrder ? row.sort_order : 0,
+        is_hidden: hasIsHidden ? row.is_hidden : false,
         unlocked: unlocked,
         is_visible: isVisible
       };
     });
     
-    // 7. Фильтруем видимые достижения
     const visibleAchievements = achievements.filter(a => a.is_visible);
     
     res.json({
@@ -606,25 +627,51 @@ app.get('/api/achievements', async (req, res) => {
         total: visibleAchievements.length,
         unlocked: visibleAchievements.filter(a => a.unlocked).length,
         locked: visibleAchievements.filter(a => !a.unlocked).length,
-        achievements: visibleAchievements,
-        debug: {
-          has_new_columns: hasAchievementType && hasSortOrder && hasIsHidden,
-          user_id: userId,
-          total_in_db: result.rows.length
-        }
+        achievements: visibleAchievements
       }
     });
     
   } catch (error) {
-    console.error('❌ Ошибка при получении достижений:', error.message);
-    console.error('Stack trace:', error.stack);
-    console.error('Full error:', error);
+    console.error('❌ КРИТИЧЕСКАЯ ошибка в /api/achievements:');
+    console.error('Сообщение:', error.message);
+    console.error('Код:', error.code);
+    console.error('Детали:', error.detail);
     
-    res.status(500).json({
-      success: false,
-      error: 'Не удалось загрузить достижения',
-      details: process.env.NODE_ENV === 'production' ? undefined : error.message
-    });
+    // Пробуем вернуть хоть что-то
+    try {
+      const fallbackResult = await db.query('SELECT id, title, xp_reward, icon FROM achievements LIMIT 3');
+      
+      res.json({
+        success: true,
+        data: {
+          total: fallbackResult.rows.length,
+          unlocked: 0,
+          locked: fallbackResult.rows.length,
+          achievements: fallbackResult.rows.map(row => ({
+            ...row,
+            achievement_type: 'game',
+            sort_order: 0,
+            is_hidden: false,
+            unlocked: false,
+            is_visible: true
+          })),
+          note: 'Режим совместимости из-за ошибки БД'
+        }
+      });
+    } catch (fallbackError) {
+      res.status(500).json({
+        success: false,
+        error: 'Не удалось загрузить достижения',
+        debug: process.env.NODE_ENV === 'production' ? undefined : {
+          message: error.message,
+          code: error.code
+        }
+      });
+    }
+  } finally {
+    if (client) {
+      client.release();
+    }
   }
 });
 
