@@ -3,6 +3,16 @@ const cors = require('cors');
 require('dotenv').config();
 const db = require('./db');
 
+// Автоматическая миграция БД при запуске
+const autoMigrateDatabase = require('./db/auto-migrate');
+
+// Запускаем миграцию при старте сервера
+autoMigrateDatabase().then(() => {
+  console.log('🚀 API готов к работе после проверки БД');
+}).catch(err => {
+  console.error('⚠️  Миграция завершилась с ошибкой, но API продолжает работу:', err.message);
+});
+
 const app = express();
 const PORT = process.env.PORT || 3001;
 
@@ -473,64 +483,96 @@ app.post('/api/users/sync', async (req, res) => {
   }
 });
 
-// 11. Получить ВСЕ достижения (для отображения в модальном окне)
+// 11. Получить ВСЕ достижения (универсальная версия)
 app.get('/api/achievements', async (req, res) => {
   try {
     const userId = getUserId(req);
     const { game_id } = req.query;
     
-    console.log(`📊 Запрос всех достижений для пользователя: ${userId}${game_id ? `, игра: ${game_id}` : ''}`);
+    console.log(`📊 Запрос достижений для: ${userId}${game_id ? `, игра: ${game_id}` : ''}`);
     
-    // СНАЧАЛА ПРОСТОЙ ЗАПРОС БЕЗ СЛОЖНОЙ ЛОГИКИ
-    const testQuery = await db.query('SELECT COUNT(*) as count FROM achievements');
-    console.log(`✅ В таблице achievements: ${testQuery.rows[0].count} записей`);
+    // Динамически определяем доступные колонки
+    const tableInfo = await db.query(`
+      SELECT column_name 
+      FROM information_schema.columns 
+      WHERE table_name = 'achievements'
+    `);
     
-    // Базовый запрос (упрощённый)
+    const hasAchievementType = tableInfo.rows.some(col => col.column_name === 'achievement_type');
+    const hasSortOrder = tableInfo.rows.some(col => col.column_name === 'sort_order');
+    const hasIsHidden = tableInfo.rows.some(col => col.column_name === 'is_hidden');
+    
+    // Строим запрос динамически
+    let selectFields = `
+      a.id,
+      a.title,
+      a.description, 
+      a.xp_reward,
+      a.icon,
+      a.game_id,
+      g.title as game_title,
+      g.icon as game_icon
+    `;
+    
+    if (hasAchievementType) selectFields += ', a.achievement_type';
+    if (hasSortOrder) selectFields += ', a.sort_order';
+    if (hasIsHidden) selectFields += ', a.is_hidden';
+    
+    // Если колонок нет - добавляем дефолтные значения
+    if (!hasAchievementType) selectFields += ", 'game' as achievement_type";
+    if (!hasSortOrder) selectFields += ', 0 as sort_order';
+    if (!hasIsHidden) selectFields += ', false as is_hidden';
+    
     let query = `
-      SELECT 
-        a.id,
-        a.title,
-        a.description,
-        a.xp_reward,
-        a.icon,
-        a.game_id,
-        a.achievement_type,
-        a.is_hidden,
-        g.title as game_title,
-        g.icon as game_icon
+      SELECT ${selectFields}
       FROM achievements a
       LEFT JOIN games g ON a.game_id = g.id
       WHERE a.is_active = TRUE
-      ORDER BY a.sort_order ASC
-      LIMIT 10
     `;
     
-    const result = await db.query(query);
+    const params = [];
     
-    console.log(`✅ Найдено достижений: ${result.rows.length}`);
+    if (game_id) {
+      query += ` AND (a.game_id = $1 OR a.game_id IS NULL)`;
+      params.push(game_id);
+    }
     
-    // Просто возвращаем всё пока
+    query += ` ORDER BY ${hasSortOrder ? 'a.sort_order ASC, ' : ''}a.id ASC`;
+    
+    const result = await db.query(query, params);
+    
+    // Проверяем, какие достижения разблокированы пользователем
+    let unlockedIds = [];
+    if (userId && userId !== 'guest-123') {
+      const unlockedResult = await db.query(
+        'SELECT achievement_id FROM user_achievements WHERE user_id = $1',
+        [userId]
+      );
+      unlockedIds = unlockedResult.rows.map(row => row.achievement_id);
+    }
+    
+    const achievements = result.rows.map(achievement => ({
+      ...achievement,
+      unlocked: unlockedIds.includes(achievement.id),
+      // Скрываем секретные достижения если они не разблокированы
+      is_visible: !achievement.is_hidden || unlockedIds.includes(achievement.id)
+    }));
+    
     res.json({
       success: true,
       data: {
-        total: result.rows.length,
-        achievements: result.rows
-      },
-      debug: {
-        userId: userId,
-        tableCount: testQuery.rows[0].count
+        total: achievements.length,
+        unlocked: achievements.filter(a => a.unlocked).length,
+        locked: achievements.filter(a => !a.unlocked).length,
+        achievements: achievements.filter(a => a.is_visible)
       }
     });
     
   } catch (error) {
     console.error('❌ Ошибка при получении достижений:', error.message);
-    console.error('Stack trace:', error.stack);
-    
     res.status(500).json({
       success: false,
-      error: 'Не удалось загрузить достижения',
-      details: process.env.NODE_ENV === 'production' ? undefined : error.message,
-      stack: process.env.NODE_ENV === 'production' ? undefined : error.stack
+      error: 'Не удалось загрузить достижения'
     });
   }
 });
@@ -579,7 +621,21 @@ async function checkAchievements(userId, gameId, score, metadata) {
   try {
     console.log(`🏆 Проверка достижений для пользователя ${userId}, игра ${gameId}, счёт ${score}`);
     
-    // Получаем текущего пользователя
+    // 1. Проверяем структуру БД
+    const columnsCheck = await db.query(`
+      SELECT column_name 
+      FROM information_schema.columns 
+      WHERE table_name = 'achievements'
+    `);
+    
+    const existingColumns = columnsCheck.rows.map(row => row.column_name);
+    const hasNewColumns = existingColumns.includes('achievement_type') && 
+                         existingColumns.includes('sort_order') && 
+                         existingColumns.includes('is_hidden');
+    
+    console.log(`📊 Структура БД: новые колонки ${hasNewColumns ? 'ЕСТЬ' : 'ОТСУТСТВУЮТ'}`);
+    
+    // 2. Получаем пользователя
     const userResult = await db.query(
       'SELECT level, total_xp FROM users WHERE id = $1',
       [userId]
@@ -587,36 +643,60 @@ async function checkAchievements(userId, gameId, score, metadata) {
     
     if (userResult.rows.length === 0) {
       console.log(`⚠️  Пользователь ${userId} не найден`);
-      return;
+      return null;
     }
     
     const userLevel = userResult.rows[0].level;
+    const userXP = userResult.rows[0].total_xp;
     
-    // Получаем ВСЕ достижения (кроме скрытых, если пользователь их ещё не получил)
-    const achievements = await db.query(`
-      SELECT a.* 
-      FROM achievements a
-      WHERE a.is_active = TRUE
-      AND (
-        a.game_id = $1 
-        OR a.game_id IS NULL
-        OR a.achievement_type IN ('progressive', 'chain', 'one_time', 'secret')
-      )
-      AND NOT EXISTS (
-        SELECT 1 FROM user_achievements ua 
-        WHERE ua.user_id = $2 AND ua.achievement_id = a.id
-      )
-    `, [gameId, userId]);
+    // 3. Получаем достижения в зависимости от структуры БД
+    let achievementsQuery;
+    let queryParams = [userId];
+    
+    if (hasNewColumns) {
+      // Новая структура - все типы достижений
+      achievementsQuery = `
+        SELECT a.* 
+        FROM achievements a
+        WHERE a.is_active = TRUE
+        AND (
+          a.game_id = $1 
+          OR a.game_id IS NULL
+          OR a.achievement_type IN ('progressive', 'chain', 'one_time', 'secret')
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM user_achievements ua 
+          WHERE ua.user_id = $2 AND ua.achievement_id = a.id
+        )
+      `;
+      queryParams = [gameId, userId];
+    } else {
+      // Старая структура - только игровые достижения
+      achievementsQuery = `
+        SELECT a.* 
+        FROM achievements a
+        WHERE a.is_active = TRUE
+        AND (a.game_id = $1 OR a.game_id IS NULL)
+        AND NOT EXISTS (
+          SELECT 1 FROM user_achievements ua 
+          WHERE ua.user_id = $2 AND ua.achievement_id = a.id
+        )
+      `;
+      queryParams = [gameId, userId];
+    }
+    
+    const achievements = await db.query(achievementsQuery, queryParams);
     
     console.log(`🔍 Проверяем ${achievements.rows.length} возможных достижений`);
     
-    // Получаем статистику пользователя для прогрессивных достижений
+    // 4. Получаем статистику пользователя
     const userStats = await db.query(`
       SELECT 
         COUNT(DISTINCT gs.game_id) as games_played_count,
         COUNT(*) as total_games,
         SUM(gs.score) as total_score,
-        COUNT(DISTINCT ua.achievement_id) as achievements_count
+        COUNT(DISTINCT ua.achievement_id) as achievements_count,
+        MAX(ua.unlocked_at) as last_achievement_date
       FROM users u
       LEFT JOIN game_scores gs ON u.id = gs.user_id
       LEFT JOIN user_achievements ua ON u.id = ua.user_id
@@ -628,18 +708,21 @@ async function checkAchievements(userId, gameId, score, metadata) {
       games_played_count: 0,
       total_games: 0,
       total_score: 0,
-      achievements_count: 0
+      achievements_count: 0,
+      last_achievement_date: null
     };
     
-    // Проверяем время (для секретного достижения "Полуночник")
+    // 5. Проверяем дополнительные условия
     const currentHour = new Date().getHours();
     const isNightTime = currentHour >= 0 && currentHour < 5;
+    const currentDate = new Date().toISOString().split('T')[0];
     
+    // 6. Проверяем каждое достижение
     for (const achievement of achievements.rows) {
       let shouldUnlock = false;
       let unlockReason = '';
       
-      // Проверяем условия достижения
+      // Проверяем условие достижения
       switch (achievement.condition_type) {
         case 'score_above':
           shouldUnlock = score >= achievement.condition_value;
@@ -652,50 +735,65 @@ async function checkAchievements(userId, gameId, score, metadata) {
           break;
           
         case 'collection':
+          if (!hasNewColumns) continue; // Пропускаем для старой БД
           shouldUnlock = stats.achievements_count >= achievement.condition_value;
           unlockReason = `Достижений ${stats.achievements_count} >= ${achievement.condition_value}`;
           break;
           
         case 'streak_days':
-          // Упрощённая версия - считаем что есть streak
+          if (!hasNewColumns) continue;
+          // Простая проверка стрика - если играли сегодня и вчера
           const hasStreak = metadata?.streak_days >= achievement.condition_value;
           shouldUnlock = hasStreak;
-          unlockReason = `Стрик дней ${metadata?.streak_days || 0} >= ${achievement.condition_value}`;
+          unlockReason = `Стрик ${metadata?.streak_days || 0} дней >= ${achievement.condition_value}`;
           break;
           
         case 'accuracy_above':
+          if (!hasNewColumns) continue;
           const accuracy = metadata?.accuracy || 0;
           shouldUnlock = accuracy >= achievement.condition_value;
           unlockReason = `Точность ${accuracy}% >= ${achievement.condition_value}%`;
           break;
           
         case 'play_at_night':
+          if (!hasNewColumns) continue;
           shouldUnlock = isNightTime;
           unlockReason = `Игра ночью (${currentHour}:00)`;
           break;
           
         case 'perfect_game':
+          if (!hasNewColumns) continue;
           const isPerfect = metadata?.perfect_game || (metadata?.errors === 0);
           shouldUnlock = isPerfect;
           unlockReason = 'Игра без ошибок';
           break;
           
         case 'level_reached':
+          if (!hasNewColumns) continue;
           shouldUnlock = userLevel >= achievement.condition_value;
           unlockReason = `Уровень ${userLevel} >= ${achievement.condition_value}`;
           break;
           
         case 'time_under':
+          if (!hasNewColumns) continue;
           const gameTime = metadata?.time || 0;
           shouldUnlock = gameTime <= achievement.condition_value;
           unlockReason = `Время ${gameTime}сек <= ${achievement.condition_value}сек`;
           break;
           
         case 'difficulty_complete':
+          if (!hasNewColumns) continue;
           const difficultyLevel = metadata?.difficulty || 0;
           shouldUnlock = difficultyLevel >= achievement.condition_value;
           unlockReason = `Сложность ${difficultyLevel} >= ${achievement.condition_value}`;
           break;
+          
+        default:
+          // Для старых типов условий или неизвестных
+          if (achievement.condition_type && hasNewColumns) {
+            console.log(`⚠️  Неизвестный тип условия: ${achievement.condition_type}`);
+          }
+          continue;
       }
       
       if (shouldUnlock) {
@@ -706,28 +804,31 @@ async function checkAchievements(userId, gameId, score, metadata) {
         );
         
         // Добавляем опыт пользователю
+        const xpToAdd = achievement.xp_reward || 100;
         await db.query(
           'UPDATE users SET total_xp = total_xp + $1 WHERE id = $2',
-          [achievement.xp_reward, userId]
+          [xpToAdd, userId]
         );
         
-        console.log(`🎉 Достижение разблокировано: ${achievement.title} (${achievement.achievement_type})`);
+        console.log(`🎉 Достижение разблокировано: ${achievement.title}`);
         console.log(`   Причина: ${unlockReason}`);
-        console.log(`   Награда: +${achievement.xp_reward} XP`);
+        console.log(`   Награда: +${xpToAdd} XP`);
         
         // Проверяем, нужно ли повысить уровень
         await updateUserXP(userId);
         
-        // Возвращаем информацию о разблокированном достижении
-        // (Это будет использоваться для попапа на фронтенде)
-        return {
+        // Формируем ответ для фронтенда
+        const unlockedAchievement = {
           id: achievement.id,
           title: achievement.title,
-          icon: achievement.icon,
-          xp_reward: achievement.xp_reward,
-          achievement_type: achievement.achievement_type,
-          is_secret: achievement.is_hidden
+          description: achievement.description || '',
+          icon: achievement.icon || '🏆',
+          xp_reward: xpToAdd,
+          achievement_type: hasNewColumns ? (achievement.achievement_type || 'game') : 'game',
+          is_secret: hasNewColumns ? (achievement.is_hidden || false) : false
         };
+        
+        return unlockedAchievement;
       }
     }
     
