@@ -9,6 +9,7 @@ import { AuthProvider } from './contexts/AuthContext';
 import HomePage from './pages/Home/HomePage';
 import GamePage from './pages/Game/GamePage';
 import ProfilePage from './pages/Profile/ProfilePage';
+import UserProfilePage from './pages/User/UserProfilePage';
 
 // Компоненты
 import Layout from './components/Layout/Layout';
@@ -47,6 +48,7 @@ function App() {
               <Route path="/" element={<HomePage />} />
               <Route path="/game/:id" element={<GamePage />} />
               <Route path="/profile" element={<ProfilePage />} />
+              <Route path="/user/:userId" element={<UserProfilePage />} />
             </Routes>
           </Layout>
         </Router>
