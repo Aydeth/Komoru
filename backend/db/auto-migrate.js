@@ -5,7 +5,7 @@ async function autoMigrateDatabase() {
   let pool;
   
   try {
-    console.log('🔧 Проверка и автоматическое исправление структуры БД...');
+    console.log('🔧 Начинаем автоматическую проверку и исправление БД...');
     
     const connectionString = process.env.DATABASE_URL;
     pool = new Pool({
@@ -15,61 +15,89 @@ async function autoMigrateDatabase() {
     
     const client = await pool.connect();
     
-    // 1. Проверяем структуру achievements
+    // 1. Проверяем таблицу achievements
+    const checkTable = await client.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_name = 'achievements'
+      )
+    `);
+    
+    if (!checkTable.rows[0].exists) {
+      console.log('⚠️  Таблица achievements не существует!');
+      client.release();
+      return;
+    }
+    
+    // 2. Проверяем колонки
     const checkColumns = await client.query(`
       SELECT column_name 
       FROM information_schema.columns 
       WHERE table_name = 'achievements'
+      ORDER BY ordinal_position
     `);
     
     const existingColumns = checkColumns.rows.map(row => row.column_name);
-    console.log('📋 Существующие колонки в achievements:', existingColumns);
+    console.log('📋 Найдены колонки:', existingColumns);
     
     const requiredColumns = ['achievement_type', 'sort_order', 'is_hidden'];
     const missingColumns = requiredColumns.filter(col => !existingColumns.includes(col));
     
+    // 3. Добавляем недостающие колонки
     if (missingColumns.length > 0) {
       console.log(`🛠️  Добавляем недостающие колонки: ${missingColumns.join(', ')}`);
       
-      // Добавляем колонки
-      if (missingColumns.includes('achievement_type')) {
-        await client.query(`ALTER TABLE achievements ADD COLUMN IF NOT EXISTS achievement_type VARCHAR(50) DEFAULT 'game'`);
+      for (const column of missingColumns) {
+        try {
+          if (column === 'achievement_type') {
+            await client.query(`ALTER TABLE achievements ADD COLUMN achievement_type VARCHAR(50) DEFAULT 'game'`);
+            console.log('   ✅ Добавлена achievement_type');
+          } else if (column === 'sort_order') {
+            await client.query(`ALTER TABLE achievements ADD COLUMN sort_order INTEGER DEFAULT 0`);
+            console.log('   ✅ Добавлена sort_order');
+          } else if (column === 'is_hidden') {
+            await client.query(`ALTER TABLE achievements ADD COLUMN is_hidden BOOLEAN DEFAULT FALSE`);
+            console.log('   ✅ Добавлена is_hidden');
+          }
+        } catch (err) {
+          console.log(`   ⚠️  Ошибка добавления ${column}:`, err.message);
+        }
       }
-      if (missingColumns.includes('sort_order')) {
-        await client.query(`ALTER TABLE achievements ADD COLUMN IF NOT EXISTS sort_order INTEGER DEFAULT 0`);
-      }
-      if (missingColumns.includes('is_hidden')) {
-        await client.query(`ALTER TABLE achievements ADD COLUMN IF NOT EXISTS is_hidden BOOLEAN DEFAULT FALSE`);
-      }
-      
-      console.log('✅ Недостающие колонки добавлены');
+    } else {
+      console.log('✅ Все необходимые колонки присутствуют');
     }
     
-    // 2. Обновляем существующие записи
-    await client.query(`
-      UPDATE achievements SET 
-        achievement_type = CASE 
-          WHEN title = 'Первая игра' THEN 'one_time'
-          WHEN title = 'Коллекционер' THEN 'chain'
-          WHEN title LIKE 'Мастер%' THEN 'game'
-          WHEN title LIKE 'Головоломщик' THEN 'game'
-          WHEN title LIKE 'Богач' THEN 'progressive'
-          ELSE 'game'
-        END,
-        sort_order = CASE 
-          WHEN title = 'Первая игра' THEN 1
-          WHEN title = 'Мастер змейки' THEN 2
-          WHEN title = 'Головоломщик' THEN 3
-          WHEN title = 'Коллекционер' THEN 4
-          WHEN title = 'Богач' THEN 5
-          ELSE 10
-        END
-      WHERE achievement_type IS NULL OR sort_order = 0
-    `);
+    // 4. Обновляем существующие записи
+    try {
+      const updateResult = await client.query(`
+        UPDATE achievements SET 
+          achievement_type = CASE 
+            WHEN title = 'Первая игра' THEN 'one_time'
+            WHEN title = 'Коллекционер' THEN 'chain'
+            WHEN title LIKE 'Мастер%' THEN 'game'
+            WHEN title LIKE 'Головоломщик' THEN 'game'
+            WHEN title LIKE 'Богач' THEN 'progressive'
+            ELSE 'game'
+          END,
+          sort_order = CASE 
+            WHEN title = 'Первая игра' THEN 1
+            WHEN title = 'Мастер змейки' THEN 2
+            WHEN title = 'Головоломщик' THEN 3
+            WHEN title = 'Коллекционер' THEN 4
+            WHEN title = 'Богач' THEN 5
+            ELSE 10
+          END
+        WHERE achievement_type IS NULL OR sort_order = 0
+      `);
+      
+      if (updateResult.rowCount > 0) {
+        console.log(`✅ Обновлено ${updateResult.rowCount} существующих достижений`);
+      }
+    } catch (err) {
+      console.log('⚠️  Не удалось обновить существующие записи:', err.message);
+    }
     
-    console.log('✅ Существующие достижения обновлены');
-    
-    // 3. Добавляем новые достижения если их нет
+    // 5. Добавляем новые достижения
     const newAchievements = [
       ['Игрок недели', 'Сыграйте 7 дней подряд', 300, NULL, '🔥', 'streak_days', 7, 'progressive', 6, false],
       ['Активный игрок', 'Сыграйте 20 игр', 250, NULL, '🎯', 'play_count', 20, 'progressive', 7, false],
@@ -88,42 +116,34 @@ async function autoMigrateDatabase() {
     
     let addedCount = 0;
     for (const achievement of newAchievements) {
-      const [title, description, xp_reward, game_id, icon, condition_type, condition_value, achievement_type, sort_order, is_hidden] = achievement;
-      
-      const result = await client.query(
-        `INSERT INTO achievements (title, description, xp_reward, game_id, icon, condition_type, condition_value, achievement_type, sort_order, is_hidden)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-         ON CONFLICT (title) DO NOTHING`,
-        [title, description, xp_reward, game_id, icon, condition_type, condition_value, achievement_type, sort_order, is_hidden]
-      );
-      
-      if (result.rowCount > 0) {
-        addedCount++;
+      try {
+        const result = await client.query(
+          `INSERT INTO achievements (title, description, xp_reward, game_id, icon, condition_type, condition_value, achievement_type, sort_order, is_hidden)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+           ON CONFLICT (title) DO NOTHING`,
+          achievement
+        );
+        
+        if (result.rowCount > 0) {
+          addedCount++;
+        }
+      } catch (err) {
+        console.log(`⚠️  Ошибка добавления "${achievement[0]}":`, err.message);
       }
     }
     
     console.log(`✅ Добавлено новых достижений: ${addedCount}`);
     
-    // 4. Проверяем итог
+    // 6. Итоговая статистика
     const totalResult = await client.query('SELECT COUNT(*) as total FROM achievements');
-    const typeResult = await client.query(`
-      SELECT achievement_type, COUNT(*) as count 
-      FROM achievements 
-      GROUP BY achievement_type
-    `);
-    
-    console.log(`📊 Итоговая статистика:`);
-    console.log(`   • Всего достижений: ${totalResult.rows[0].total}`);
-    typeResult.rows.forEach(row => {
-      console.log(`   • ${row.achievement_type}: ${row.count}`);
-    });
+    console.log(`📊 Всего достижений в БД: ${totalResult.rows[0].total}`);
     
     client.release();
-    console.log('🎉 Автоматическая миграция завершена успешно!');
+    console.log('🎉 Автоматическая миграция завершена!');
     
   } catch (error) {
     console.error('❌ Ошибка автоматической миграции:', error.message);
-    // НЕ выходим с ошибкой - API должен продолжить работу
+    // Не прерываем выполнение - API должен работать
   } finally {
     if (pool) {
       await pool.end();
