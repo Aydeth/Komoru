@@ -14,28 +14,26 @@ const api = axios.create({
 });
 
 // Перехватчик для добавления userId как query параметра
+// Перехватчик для добавления userId
 api.interceptors.request.use(
   (config) => {
-    // Добавляем userId как query параметр только для user endpoints
+    // Получаем пользователя из localStorage
     const userStr = localStorage.getItem('komoru_user');
     
     if (userStr) {
       try {
         const user = JSON.parse(userStr);
         
-        // Только для запросов данных пользователя
-        const userEndpoints = [
-          '/user/me',
-          '/users/current/scores', 
-          '/users/current/achievements'
-        ];
+        // Добавляем userId как заголовок X-User-ID
+        if (user.id && user.id !== 'guest-123') {
+          config.headers['X-User-ID'] = user.id;
+        }
         
-        const isUserEndpoint = userEndpoints.some(endpoint => 
-          config.url?.includes(endpoint)
-        );
-        
-        if (isUserEndpoint && user.id && user.id !== 'guest-123') {
-          // Добавляем как query параметр (безопаснее для CORS)
+        // Также добавляем как query параметр для надёжности
+        if (config.url?.includes('/api/achievements') || 
+            config.url?.includes('/api/user') ||
+            config.url?.includes('/api/users/current')) {
+          
           config.params = {
             ...config.params,
             userId: user.id

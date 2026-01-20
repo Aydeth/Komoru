@@ -630,19 +630,30 @@ app.get('/api/achievements', async (req, res) => {
   }
 });
 
-// 12. Получить последние полученные достижения (для блока в профиле)
+// 12. Получить последние достижения ТЕКУЩЕГО пользователя
 app.get('/api/users/current/achievements/latest', async (req, res) => {
   try {
     const userId = getUserId(req);
+    
+    if (!userId || userId === 'guest-123') {
+      return res.json({
+        success: true,
+        data: [],
+        count: 0,
+        message: 'Требуется авторизация'
+      });
+    }
+    
     const limit = parseInt(req.query.limit) || 3;
     
-    console.log(`🆕 Последние достижения для пользователя: ${userId}, лимит: ${limit}`);
+    console.log(`🆕 Последние достижения для авторизованного пользователя: ${userId}`);
     
     const result = await db.query(
       `SELECT 
         a.*,
         ua.unlocked_at,
-        g.title as game_title
+        g.title as game_title,
+        g.icon as game_icon
       FROM achievements a
       JOIN user_achievements ua ON a.id = ua.achievement_id
       LEFT JOIN games g ON a.game_id = g.id
@@ -663,6 +674,119 @@ app.get('/api/users/current/achievements/latest', async (req, res) => {
     res.status(500).json({
       success: false,
       error: 'Не удалось загрузить последние достижения'
+    });
+  }
+});
+
+// 13. Получить достижения конкретного пользователя (публичный доступ)
+app.get('/api/users/:userId/achievements', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { limit } = req.query;
+    
+    console.log(`👤 Запрос достижений пользователя: ${userId}`);
+    
+    // Проверяем существование пользователя
+    const userCheck = await db.query(
+      'SELECT id, username, avatar_url FROM users WHERE id = $1',
+      [userId]
+    );
+    
+    if (userCheck.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Пользователь не найден'
+      });
+    }
+    
+    const user = userCheck.rows[0];
+    
+    // Получаем достижения пользователя
+    const achievementsQuery = `
+      SELECT 
+        a.*,
+        ua.unlocked_at,
+        g.title as game_title,
+        g.icon as game_icon
+      FROM achievements a
+      JOIN user_achievements ua ON a.id = ua.achievement_id
+      LEFT JOIN games g ON a.game_id = g.id
+      WHERE ua.user_id = $1
+      AND (a.is_hidden = FALSE OR $2 = TRUE)  // $2 = is_owner (false для чужих)
+      ORDER BY ua.unlocked_at DESC
+      ${limit ? `LIMIT $3` : ''}
+    `;
+    
+    const queryParams = [userId, false]; // false = не владелец (скрываем секретные)
+    if (limit) queryParams.push(parseInt(limit));
+    
+    const achievementsResult = await db.query(
+      achievementsQuery,
+      queryParams
+    );
+    
+    // Получаем статистику пользователя
+    const statsQuery = await db.query(`
+      SELECT 
+        COUNT(DISTINCT ua.achievement_id) as total_achievements,
+        COUNT(DISTINCT gs.game_id) as games_played,
+        COALESCE(SUM(gs.score), 0) as total_score,
+        u.level,
+        u.total_xp
+      FROM users u
+      LEFT JOIN user_achievements ua ON u.id = ua.user_id
+      LEFT JOIN game_scores gs ON u.id = gs.user_id
+      WHERE u.id = $1
+      GROUP BY u.id, u.level, u.total_xp
+    `, [userId]);
+    
+    const stats = statsQuery.rows[0] || {
+      total_achievements: 0,
+      games_played: 0,
+      total_score: 0,
+      level: 1,
+      total_xp: 0
+    };
+    
+    // Группируем достижения по типам
+    const achievementsByType = {};
+    achievementsResult.rows.forEach(achievement => {
+      const type = achievement.achievement_type || 'game';
+      if (!achievementsByType[type]) {
+        achievementsByType[type] = [];
+      }
+      achievementsByType[type].push(achievement);
+    });
+    
+    res.json({
+      success: true,
+      data: {
+        user: {
+          id: user.id,
+          username: user.username,
+          avatar: user.avatar_url,
+          level: stats.level,
+          xp: stats.total_xp
+        },
+        stats: {
+          total_achievements: stats.total_achievements,
+          games_played: stats.games_played,
+          total_score: stats.total_score,
+          achievement_types: Object.keys(achievementsByType).length
+        },
+        achievements: {
+          total: achievementsResult.rows.length,
+          by_type: achievementsByType,
+          recent: achievementsResult.rows.slice(0, 5)
+        }
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ Ошибка при получении достижений пользователя:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Не удалось загрузить достижения пользователя'
     });
   }
 });
