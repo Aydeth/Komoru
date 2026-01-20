@@ -485,7 +485,7 @@ app.post('/api/users/sync', async (req, res) => {
   }
 });
 
-// 11. Получить ВСЕ достижения (РАБОЧАЯ универсальная версия)
+// 11. Получить ВСЕ достижения (БЕЗОПАСНАЯ версия без is_active)
 app.get('/api/achievements', async (req, res) => {
   let client;
   try {
@@ -494,95 +494,66 @@ app.get('/api/achievements', async (req, res) => {
     
     console.log(`📊 Запрос достижений для: ${userId}${game_id ? `, игра: ${game_id}` : ''}`);
     
-    // Получаем клиент для транзакции
     client = await db.pool.connect();
     
-    // 1. Сначала простейший запрос чтобы проверить таблицу
+    // 1. Простейший запрос БЕЗ is_active
     const tableCheck = await client.query(`
       SELECT id, title, xp_reward, icon, game_id 
       FROM achievements 
-      WHERE is_active = TRUE
-      LIMIT 5
+      LIMIT 10
     `);
     
     console.log(`✅ Таблица существует, записей: ${tableCheck.rows.length}`);
     
-    // 2. Получаем структуру таблицы
-    let hasAchievementType = false;
-    let hasSortOrder = false;
-    let hasIsHidden = false;
-    
+    // 2. Проверяем наличие is_active
+    let hasIsActive = false;
     try {
-      const columnsCheck = await client.query(`
+      const columnCheck = await client.query(`
         SELECT column_name 
         FROM information_schema.columns 
-        WHERE table_name = 'achievements'
+        WHERE table_name = 'achievements' 
+        AND column_name = 'is_active'
       `);
-      
-      const existingColumns = columnsCheck.rows.map(row => row.column_name);
-      console.log('📋 Колонки в achievements:', existingColumns);
-      
-      hasAchievementType = existingColumns.includes('achievement_type');
-      hasSortOrder = existingColumns.includes('sort_order');
-      hasIsHidden = existingColumns.includes('is_hidden');
-      
+      hasIsActive = columnCheck.rows.length > 0;
     } catch (err) {
-      console.log('⚠️  Не удалось проверить колонки:', err.message);
-      // Продолжаем со значениями по умолчанию
+      console.log('⚠️  Не удалось проверить колонку is_active:', err.message);
     }
     
-    // 3. Строим БЕЗОПАСНЫЙ запрос
-    const selectFields = [
-      'a.id',
-      'a.title',
-      'a.description',
-      'a.xp_reward',
-      'a.icon',
-      'a.game_id',
-      'g.title as game_title',
-      'g.icon as game_icon',
-      'a.is_active'
-    ];
+    // 3. Строим запрос
+    let whereClause = 'WHERE 1=1'; // Всегда истина
     
-    if (hasAchievementType) {
-      selectFields.push('a.achievement_type');
-    } else {
-      selectFields.push("'game' as achievement_type");
+    if (hasIsActive) {
+      whereClause = 'WHERE a.is_active = TRUE';
     }
-    
-    if (hasSortOrder) {
-      selectFields.push('a.sort_order');
-    } else {
-      selectFields.push('0 as sort_order');
-    }
-    
-    if (hasIsHidden) {
-      selectFields.push('a.is_hidden');
-    } else {
-      selectFields.push('false as is_hidden');
-    }
-    
-    // 4. Основной запрос (максимально простой)
-    let query = `
-      SELECT ${selectFields.join(', ')}
-      FROM achievements a
-      LEFT JOIN games g ON a.game_id = g.id
-      WHERE a.is_active = TRUE
-    `;
-    
-    const params = [];
     
     if (game_id) {
-      query += ` AND (a.game_id = $1 OR a.game_id IS NULL)`;
-      params.push(game_id);
+      whereClause += ` AND (a.game_id = $1 OR a.game_id IS NULL)`;
     }
     
-    query += ` ORDER BY ${hasSortOrder ? 'a.sort_order ASC, ' : ''}a.id ASC`;
+    // 4. Основной запрос
+    const query = `
+      SELECT 
+        a.id,
+        a.title,
+        a.description,
+        a.xp_reward,
+        a.icon,
+        a.game_id,
+        g.title as game_title,
+        g.icon as game_icon,
+        COALESCE(a.achievement_type, 'game') as achievement_type,
+        COALESCE(a.sort_order, 0) as sort_order,
+        COALESCE(a.is_hidden, false) as is_hidden
+      FROM achievements a
+      LEFT JOIN games g ON a.game_id = g.id
+      ${whereClause}
+      ORDER BY COALESCE(a.sort_order, 0) ASC, a.id ASC
+    `;
     
-    console.log(`📝 Выполняем безопасный запрос`);
+    const params = game_id ? [game_id] : [];
     const result = await client.query(query, params);
     
-    // 5. Получаем разблокированные достижения пользователя
+    // 5. Получаем разблокированные
     let unlockedIds = [];
     if (userId && userId !== 'guest-123') {
       try {
@@ -592,28 +563,17 @@ app.get('/api/achievements', async (req, res) => {
         );
         unlockedIds = unlockedResult.rows.map(row => row.achievement_id);
       } catch (err) {
-        console.log('⚠️  Не удалось получить разблокированные достижения:', err.message);
+        console.log('⚠️  Не удалось получить разблокированные:', err.message);
       }
     }
     
     // 6. Формируем ответ
     const achievements = result.rows.map(row => {
       const unlocked = unlockedIds.includes(row.id);
-      const isSecret = hasIsHidden ? row.is_hidden : false;
-      const isVisible = !isSecret || unlocked;
+      const isVisible = !row.is_hidden || unlocked;
       
       return {
-        id: row.id,
-        title: row.title,
-        description: row.description,
-        xp_reward: row.xp_reward,
-        icon: row.icon,
-        game_id: row.game_id,
-        game_title: row.game_title,
-        game_icon: row.game_icon,
-        achievement_type: hasAchievementType ? row.achievement_type : 'game',
-        sort_order: hasSortOrder ? row.sort_order : 0,
-        is_hidden: hasIsHidden ? row.is_hidden : false,
+        ...row,
         unlocked: unlocked,
         is_visible: isVisible
       };
@@ -627,45 +587,40 @@ app.get('/api/achievements', async (req, res) => {
         total: visibleAchievements.length,
         unlocked: visibleAchievements.filter(a => a.unlocked).length,
         locked: visibleAchievements.filter(a => !a.unlocked).length,
-        achievements: visibleAchievements
+        achievements: visibleAchievements,
+        debug: {
+          has_is_active: hasIsActive,
+          user_id: userId,
+          total_in_db: result.rows.length
+        }
       }
     });
     
   } catch (error) {
-    console.error('❌ КРИТИЧЕСКАЯ ошибка в /api/achievements:');
-    console.error('Сообщение:', error.message);
-    console.error('Код:', error.code);
-    console.error('Детали:', error.detail);
+    console.error('❌ Ошибка в /api/achievements:', error.message);
     
-    // Пробуем вернуть хоть что-то
+    // Fallback
     try {
-      const fallbackResult = await db.query('SELECT id, title, xp_reward, icon FROM achievements LIMIT 3');
+      const fallback = await db.query('SELECT id, title, xp_reward, icon FROM achievements LIMIT 5');
       
       res.json({
         success: true,
         data: {
-          total: fallbackResult.rows.length,
+          total: fallback.rows.length,
           unlocked: 0,
-          locked: fallbackResult.rows.length,
-          achievements: fallbackResult.rows.map(row => ({
+          locked: fallback.rows.length,
+          achievements: fallback.rows.map(row => ({
             ...row,
             achievement_type: 'game',
-            sort_order: 0,
-            is_hidden: false,
             unlocked: false,
             is_visible: true
-          })),
-          note: 'Режим совместимости из-за ошибки БД'
+          }))
         }
       });
     } catch (fallbackError) {
       res.status(500).json({
         success: false,
-        error: 'Не удалось загрузить достижения',
-        debug: process.env.NODE_ENV === 'production' ? undefined : {
-          message: error.message,
-          code: error.code
-        }
+        error: 'Не удалось загрузить достижения'
       });
     }
   } finally {
@@ -756,7 +711,7 @@ async function checkAchievements(userId, gameId, score, metadata) {
       achievementsQuery = `
         SELECT a.* 
         FROM achievements a
-        WHERE a.is_active = TRUE
+        WHERE (a.is_active = TRUE OR a.is_active IS NULL)
         AND (
           a.game_id = $1 
           OR a.game_id IS NULL
@@ -773,7 +728,7 @@ async function checkAchievements(userId, gameId, score, metadata) {
       achievementsQuery = `
         SELECT a.* 
         FROM achievements a
-        WHERE a.is_active = TRUE
+        WHERE (a.is_active = TRUE OR a.is_active IS NULL)
         AND (a.game_id = $1 OR a.game_id IS NULL)
         AND NOT EXISTS (
           SELECT 1 FROM user_achievements ua 
