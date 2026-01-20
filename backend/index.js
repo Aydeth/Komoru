@@ -712,7 +712,7 @@ app.get('/api/users/:userId/achievements', async (req, res) => {
       JOIN user_achievements ua ON a.id = ua.achievement_id
       LEFT JOIN games g ON a.game_id = g.id
       WHERE ua.user_id = $1
-      AND (a.is_hidden = FALSE OR $2 = TRUE)  // $2 = is_owner (false для чужих)
+      AND (COALESCE(a.is_hidden, a.is_secret, FALSE) = FALSE OR $2 = TRUE)
       ORDER BY ua.unlocked_at DESC
       ${limit ? `LIMIT $3` : ''}
     `;
