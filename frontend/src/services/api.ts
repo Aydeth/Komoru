@@ -1,10 +1,5 @@
 import axios from 'axios';
 import { useAchievements } from '../contexts/AchievementContext';
-let achievementCallback: ((achievement: any) => void) | null = null;
-
-export const setAchievementCallback = (callback: ((achievement: any) => void) | null) => {
-  achievementCallback = callback;
-};
 
 // Базовый URL нашего бэкенда на Render
 const API_BASE_URL = 'https://komoru-api.onrender.com/api';
@@ -20,7 +15,6 @@ const api = axios.create({
 });
 
 // Перехватчик для добавления userId как query параметра
-// Перехватчик для добавления userId
 api.interceptors.request.use(
   (config) => {
     // Получаем пользователя из localStorage
@@ -122,10 +116,17 @@ export interface ApiResponse<T> {
   count?: number;
 }
 
-// API методы
-export const apiService = {
+// Класс для работы с API
+class ApiService {
+  private showAchievementCallback: ((achievement: any) => void) | null = null;
+
+  // Метод для установки callback
+  setShowAchievementCallback(callback: (achievement: any) => void) {
+    this.showAchievementCallback = callback;
+  }
+
   // Проверка здоровья сервера
-  checkHealth: async (): Promise<ApiResponse<any>> => {
+  checkHealth = async (): Promise<ApiResponse<any>> => {
     try {
       const response = await api.get('/health');
       return response.data;
@@ -135,10 +136,10 @@ export const apiService = {
         error: 'Сервер не отвечает'
       };
     }
-  },
+  };
 
   // Получить все игры
-  getGames: async (): Promise<ApiResponse<Game[]>> => {
+  getGames = async (): Promise<ApiResponse<Game[]>> => {
     try {
       const response = await api.get('/games');
       return response.data;
@@ -148,10 +149,10 @@ export const apiService = {
         error: 'Не удалось загрузить игры'
       };
     }
-  },
+  };
 
   // Получить конкретную игру
-  getGame: async (id: string): Promise<ApiResponse<Game>> => {
+  getGame = async (id: string): Promise<ApiResponse<Game>> => {
     try {
       const response = await api.get(`/games/${id}`);
       return response.data;
@@ -161,10 +162,10 @@ export const apiService = {
         error: 'Игра не найдена'
       };
     }
-  },
+  };
 
   // Получить лидерборд игры
-  getLeaderboard: async (
+  getLeaderboard = async (
     gameId: string, 
     limit?: number
   ): Promise<ApiResponse<LeaderboardEntry[]>> => {
@@ -178,10 +179,10 @@ export const apiService = {
         error: 'Не удалось загрузить лидерборд'
       };
     }
-  },
+  };
 
   // Получить информацию о пользователе
-  getUser: async (): Promise<ApiResponse<User>> => {
+  getUser = async (): Promise<ApiResponse<User>> => {
     try {
       const response = await api.get('/user/me');
       console.log('👤 Данные пользователя:', response.data);
@@ -193,51 +194,53 @@ export const apiService = {
         error: 'Не удалось загрузить информацию о пользователе'
       };
     }
-  },
+  };
 
   // Сохранить результат игры
-  saveGameScore: async (
-  gameId: string,
-  score: number,
-  metadata?: Record<string, any>
-): Promise<ApiResponse<GameScore>> => {
-  try {
-    const userStr = localStorage.getItem('komoru_user');
-    let userId = 'guest-123';
-    
-    if (userStr) {
-      const user = JSON.parse(userStr);
-      userId = user.id || 'guest-123';
+  saveGameScore = async (
+    gameId: string,
+    score: number,
+    metadata?: Record<string, any>
+  ): Promise<ApiResponse<GameScore>> => {
+    try {
+      const userStr = localStorage.getItem('komoru_user');
+      let userId = 'guest-123';
+      
+      if (userStr) {
+        const user = JSON.parse(userStr);
+        userId = user.id || 'guest-123';
+      }
+      
+      console.log(`💾 Сохранение результата для пользователя: ${userId} (игра: ${gameId}, счёт: ${score})`);
+      
+      const response = await api.post(`/games/${gameId}/scores`, {
+        userId,
+        score,
+        metadata: metadata || {}
+      });
+      
+      console.log('✅ Результат сохранен:', response.data);
+      
+      // Если есть разблокированное достижение и установлен callback
+      if (response.data.unlocked_achievement && this.showAchievementCallback) {
+        console.log('🎉 Получено достижение, вызываем callback');
+        this.showAchievementCallback(response.data.unlocked_achievement);
+      } else if (response.data.unlocked_achievement) {
+        console.log('🎉 Получено достижение, но callback не установлен:', response.data.unlocked_achievement);
+      }
+      
+      return response.data;
+    } catch (error: any) {
+      console.error('❌ Ошибка сохранения:', error.response?.data || error.message);
+      return {
+        success: false,
+        error: error.response?.data?.error || 'Не удалось сохранить результат'
+      };
     }
-    
-    console.log(`💾 Сохранение результата для пользователя: ${userId} (игра: ${gameId}, счёт: ${score})`);
-    
-    const response = await api.post(`/games/${gameId}/scores`, {
-      userId,
-      score,
-      metadata: metadata || {}
-    });
-    
-    console.log('✅ Результат сохранен:', response.data);
-    
-    // Если есть разблокированное достижение
-    if (response.data.unlocked_achievement && achievementCallback) {
-      console.log('🎉 Получено достижение, вызываем callback');
-      achievementCallback(response.data.unlocked_achievement);
-    }
-    
-    return response.data;
-  } catch (error: any) {
-    console.error('❌ Ошибка сохранения:', error.response?.data || error.message);
-    return {
-      success: false,
-      error: error.response?.data?.error || 'Не удалось сохранить результат'
-    };
-  }
-},
+  };
 
   // Получить результаты пользователя
-  getUserScores: async (): Promise<ApiResponse<GameScore[]>> => {
+  getUserScores = async (): Promise<ApiResponse<GameScore[]>> => {
     try {
       const response = await api.get('/users/current/scores');
       console.log('🎮 Результаты игр:', response.data);
@@ -249,10 +252,10 @@ export const apiService = {
         error: 'Не удалось загрузить результаты'
       };
     }
-  },
+  };
 
   // Получить достижения пользователя
-  getUserAchievements: async (): Promise<ApiResponse<Achievement[]>> => {
+  getUserAchievements = async (): Promise<ApiResponse<Achievement[]>> => {
     try {
       const response = await api.get('/users/current/achievements');
       console.log('🏆 Достижения:', response.data);
@@ -264,10 +267,10 @@ export const apiService = {
         error: 'Не удалось загрузить достижения'
       };
     }
-  },
+  };
 
   // Синхронизация пользователя с бэкендом
-  syncUser: async (userData: {
+  syncUser = async (userData: {
     uid: string;
     email: string | null;
     displayName: string | null;
@@ -283,7 +286,22 @@ export const apiService = {
         error: 'Ошибка синхронизации'
       };
     }
-  }
-};
+  };
 
+  // Получить все достижения
+  getAllAchievements = async (): Promise<ApiResponse<any>> => {
+    try {
+      const response = await api.get('/achievements');
+      return response.data;
+    } catch (error) {
+      return {
+        success: false,
+        error: 'Не удалось загрузить все достижения'
+      };
+    }
+  };
+}
+
+// Создаем экземпляр и экспортируем
+export const apiService = new ApiService();
 export default apiService;

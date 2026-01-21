@@ -1,6 +1,5 @@
 import React, { createContext, useContext, useState, ReactNode } from 'react';
 import AchievementPopup from '../components/Achievements/AchievementPopup';
-import { setAchievementCallback } from '../services/api'; // Добавь импорт
 
 interface Achievement {
   id: number;
