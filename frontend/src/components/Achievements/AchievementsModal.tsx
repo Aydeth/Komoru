@@ -1,3 +1,4 @@
+// components/Achievements/AchievementsModal.tsx
 import React, { useState, useEffect } from 'react';
 import {
   Modal,
@@ -49,6 +50,19 @@ interface ExtendedAchievement {
   is_visible?: boolean;
 }
 
+// Вспомогательная функция для преобразования типа достижения
+const getAchievementTypeLabel = (type: string): string => {
+  const labels: Record<string, string> = {
+    'game': 'Игровые',
+    'one_time': 'Единоразовые',
+    'progressive': 'Прогрессивные',
+    'secret': 'Секретные',
+    'chain': 'Цепочка',
+    'collection': 'Коллекция',
+  };
+  return labels[type] || type;
+};
+
 const AchievementsModal: React.FC<AchievementsModalProps> = ({ open, onClose, userId }) => {
   const [achievements, setAchievements] = useState<ExtendedAchievement[]>([]);
   const [unlockedIds, setUnlockedIds] = useState<number[]>([]);
@@ -73,154 +87,145 @@ const AchievementsModal: React.FC<AchievementsModalProps> = ({ open, onClose, us
       setLoading(true);
       setError(null);
       
-      console.log('🔄 Загрузка списка достижений...');
+      console.log('🔄 Загрузка достижений для модального окна...');
+      console.log('👤 ID пользователя:', userId || 'текущий пользователь');
       
-      // Используем правильный API endpoint
-      const apiUrl = process.env.REACT_APP_API_URL?.replace('/api', '') || 'https://komoru-api.onrender.com';
-      const url = `${apiUrl}/api/achievements`;
-      
-      console.log('📡 Запрос по URL:', url);
-      
-      const response = await fetch(url);
-      
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      
-      const data = await response.json();
-      console.log('📦 Получены данные достижений:', data);
-      
-      if (data.success) {
-        const allAchievements = data.data?.achievements || [];
-        setAchievements(allAchievements);
+      if (userId) {
+        // Загружаем достижения конкретного пользователя
+        console.log(`🏆 Загружаем достижения пользователя ${userId}...`);
+        const userResponse = await apiService.getUserAchievementsById(userId);
         
-        // Получаем разблокированные достижения пользователя
-        if (userId) {
-          // Для других пользователей - используем заглушку
-          const userUnlocked = allAchievements
-            .filter((a: ExtendedAchievement) => Math.random() > 0.7) // Случайные достижения
-            .map((a: ExtendedAchievement) => a.id);
-          setUnlockedIds(userUnlocked);
-        } else {
-          // Для текущего пользователя
-          const userResponse = await apiService.getUserAchievements();
-          if (userResponse.success && userResponse.data) {
-            const userUnlocked = userResponse.data
-              .filter(a => a.unlocked_at)
-              .map(a => a.id);
-            setUnlockedIds(userUnlocked);
+        if (userResponse.success && userResponse.data) {
+          const userData = userResponse.data;
+          console.log('📦 Данные пользователя получены:', userData);
+          
+          // Получаем все разблокированные достижения пользователя
+          const unlockedAchievements: ExtendedAchievement[] = [];
+          const unlockedIdsSet = new Set<number>();
+          
+          // Проходим по всем типам достижений
+          if (userData.achievements?.by_type) {
+            Object.values(userData.achievements.by_type).forEach((achievementsArray: any) => {
+              if (Array.isArray(achievementsArray)) {
+                achievementsArray.forEach((achievement: any) => {
+                  unlockedAchievements.push({
+                    ...achievement,
+                    unlocked: true,
+                    unlocked_at: achievement.unlocked_at,
+                    is_visible: true
+                  });
+                  if (achievement.id) {
+                    unlockedIdsSet.add(achievement.id);
+                  }
+                });
+              }
+            });
           }
+          
+          // Загружаем ВСЕ достижения чтобы показать и заблокированные
+          const allResponse = await apiService.getAllAchievements();
+          if (allResponse.success && allResponse.data) {
+            const allAchievementsData = allResponse.data?.achievements || [];
+            console.log('📊 Всего достижений в системе:', allAchievementsData.length);
+            
+            // Создаем полный список
+            const allAchievementsMap = new Map<number, ExtendedAchievement>();
+            
+            // Добавляем все достижения
+            allAchievementsData.forEach((achievement: any) => {
+              if (achievement.id) {
+                allAchievementsMap.set(achievement.id, {
+                  ...achievement,
+                  unlocked: unlockedIdsSet.has(achievement.id),
+                  is_visible: !achievement.is_hidden || unlockedIdsSet.has(achievement.id)
+                });
+              }
+            });
+            
+            // Обновляем разблокированные данными из пользователя
+            unlockedAchievements.forEach(achievement => {
+              if (achievement.id) {
+                allAchievementsMap.set(achievement.id, achievement);
+              }
+            });
+            
+            const allAchievementsArray = Array.from(allAchievementsMap.values());
+            setAchievements(allAchievementsArray);
+            setUnlockedIds(Array.from(unlockedIdsSet));
+            
+            console.log(`✅ Загружено ${allAchievementsArray.length} достижений`);
+            console.log(`🔓 Разблокировано: ${unlockedIdsSet.size}`);
+          } else {
+            // Если не удалось загрузить все достижения, показываем только разблокированные
+            setAchievements(unlockedAchievements);
+            setUnlockedIds(Array.from(unlockedIdsSet));
+            console.log(`✅ Показаны только разблокированные достижения: ${unlockedAchievements.length}`);
+          }
+        } else {
+          throw new Error(userResponse.error || 'Не удалось загрузить достижения пользователя');
         }
       } else {
-        throw new Error(data.error || 'Не удалось загрузить достижения');
+        // Загружаем достижения для текущего пользователя (старый код)
+        console.log('👤 Загружаем достижения для текущего пользователя');
+        const apiUrl = process.env.REACT_APP_API_URL?.replace('/api', '') || 'https://komoru-api.onrender.com';
+        const url = `${apiUrl}/api/achievements`;
+        
+        console.log('📡 Запрос по URL:', url);
+        const response = await fetch(url);
+        
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        console.log('📦 Получены данные достижений:', data);
+        
+        if (data.success) {
+          const allAchievementsData = data.data?.achievements || [];
+          const mappedAchievements: ExtendedAchievement[] = allAchievementsData.map((row: any) => ({
+            ...row,
+            unlocked: false,
+            is_visible: !row.is_hidden
+          }));
+          setAchievements(mappedAchievements);
+          
+          // Для текущего пользователя получаем разблокированные
+          const userResponse = await apiService.getUserAchievements();
+          if (userResponse.success && userResponse.data) {
+            const userUnlocked = userResponse.data.map((a: any) => a.id);
+            setUnlockedIds(userUnlocked);
+            
+            // Обновляем статус разблокировки
+            setAchievements(prev => prev.map(a => ({
+              ...a,
+              unlocked: userUnlocked.includes(a.id)
+            })));
+          }
+        } else {
+          throw new Error(data.error || 'Не удалось загрузить достижения');
+        }
       }
       
     } catch (err) {
       console.error('❌ Ошибка загрузки достижений:', err);
       setError('Не удалось загрузить достижения. Попробуйте позже.');
       
-      // Fallback: создаем тестовые данные
-      const fallbackAchievements: ExtendedAchievement[] = [
-        {
-          id: 1,
-          title: 'Первая игра',
-          description: 'Сыграйте в свою первую игру',
-          xp_reward: 50,
-          game_id: null,
-          icon: '🎮',
-          condition_type: 'play_count',
-          condition_value: 1,
-          achievement_type: 'one_time',
-          unlocked: true
-        },
-        {
-          id: 2,
-          title: 'Мастер змейки',
-          description: 'Наберите 1000 очков в Змейке',
-          xp_reward: 200,
-          game_id: 'snake',
-          icon: '🐍',
-          condition_type: 'score_above',
-          condition_value: 1000,
-          achievement_type: 'game',
-          unlocked: false
-        },
-        {
-          id: 3,
-          title: 'Головоломщик',
-          description: 'Соберите пятнашки за 5 минут',
-          xp_reward: 150,
-          game_id: 'puzzle15',
-          icon: '🧩',
-          condition_type: 'score_above',
-          condition_value: 300,
-          achievement_type: 'game',
-          unlocked: false
-        },
-        {
-          id: 4,
-          title: 'Коллекционер',
-          description: 'Получите 5 достижений',
-          xp_reward: 300,
-          game_id: null,
-          icon: '🏆',
-          condition_type: 'collection',
-          condition_value: 5,
-          achievement_type: 'chain',
-          unlocked: false
-        },
-        {
-          id: 5,
-          title: 'Богач',
-          description: 'Накопите 500 кристаллов',
-          xp_reward: 250,
-          game_id: null,
-          icon: '💎',
-          condition_type: 'collection',
-          condition_value: 500,
-          achievement_type: 'progressive',
-          unlocked: false
-        },
-        {
-          id: 6,
-          title: 'Активный игрок',
-          description: 'Сыграйте 20 игр',
-          xp_reward: 250,
-          game_id: null,
-          icon: '🎯',
-          condition_type: 'play_count',
-          condition_value: 20,
-          achievement_type: 'progressive',
-          unlocked: false
-        },
-        {
-          id: 7,
-          title: 'Змеиный путь',
-          description: 'Наберите 500 очков в Змейке',
-          xp_reward: 150,
-          game_id: 'snake',
-          icon: '🐍',
-          condition_type: 'score_above',
-          condition_value: 500,
-          achievement_type: 'game',
-          unlocked: false
-        },
-        {
-          id: 8,
-          title: 'Новичок',
-          description: 'Достигните 5 уровня',
-          xp_reward: 200,
-          game_id: null,
-          icon: '🥉',
-          condition_type: 'level_reached',
-          condition_value: 5,
-          achievement_type: 'one_time',
-          unlocked: false
-        },
-      ];
-      
-      setAchievements(fallbackAchievements);
-      setUnlockedIds([1]); // Первое достижение разблокировано
+      // Fallback с явным указанием типа
+      try {
+        const fallback = await apiService.getAllAchievements();
+        if (fallback.success && fallback.data) {
+          const fallbackAchievementsData = fallback.data?.achievements || [];
+          const mappedFallbackAchievements: ExtendedAchievement[] = fallbackAchievementsData.map((row: any) => ({
+            ...row,
+            achievement_type: 'game',
+            unlocked: false,
+            is_visible: true
+          }));
+          setAchievements(mappedFallbackAchievements);
+        }
+      } catch (fallbackError) {
+        console.error('❌ Fallback тоже не сработал:', fallbackError);
+      }
     } finally {
       setLoading(false);
     }
@@ -234,9 +239,10 @@ const AchievementsModal: React.FC<AchievementsModalProps> = ({ open, onClose, us
 
   // Фильтрация достижений по категории
   const filteredAchievements = achievements.filter(achievement => {
+    if (!achievement.is_visible) return false;
     if (activeTab === 'all') return true;
-    if (activeTab === 'unlocked') return unlockedIds.includes(achievement.id);
-    if (activeTab === 'locked') return !unlockedIds.includes(achievement.id);
+    if (activeTab === 'unlocked') return !!achievement.unlocked;
+    if (activeTab === 'locked') return !achievement.unlocked;
     
     // Проверяем наличие achievement_type
     const type = achievement.achievement_type || 'game';
@@ -244,7 +250,7 @@ const AchievementsModal: React.FC<AchievementsModalProps> = ({ open, onClose, us
   });
 
   // Расчет прогресса
-  const totalAchievements = achievements.length;
+  const totalAchievements = achievements.filter(a => a.is_visible).length;
   const unlockedAchievements = unlockedIds.length;
   const progressPercentage = totalAchievements > 0 ? Math.round((unlockedAchievements / totalAchievements) * 100) : 0;
 
@@ -271,7 +277,7 @@ const AchievementsModal: React.FC<AchievementsModalProps> = ({ open, onClose, us
           overflow: 'hidden',
         }}
       >
-        {/* Заголовок - фиксированная высота */}
+        {/* Заголовок */}
         <Box
           sx={{
             p: 3,
@@ -286,7 +292,7 @@ const AchievementsModal: React.FC<AchievementsModalProps> = ({ open, onClose, us
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
             <EmojiEventsIcon fontSize="large" />
             <Typography variant="h5" fontWeight={600}>
-              Достижения
+              {userId ? 'Достижения пользователя' : 'Мои достижения'}
             </Typography>
           </Box>
           
@@ -298,7 +304,7 @@ const AchievementsModal: React.FC<AchievementsModalProps> = ({ open, onClose, us
           </IconButton>
         </Box>
 
-        {/* Прогресс - фиксированная высота */}
+        {/* Прогресс */}
         <Box sx={{ 
           p: 3, 
           bgcolor: 'background.default',
@@ -340,7 +346,7 @@ const AchievementsModal: React.FC<AchievementsModalProps> = ({ open, onClose, us
           </Typography>
         </Box>
 
-        {/* Табы - фиксированная высота с прокруткой */}
+        {/* Табы */}
         <Box sx={{ 
           borderBottom: 1, 
           borderColor: 'divider', 
@@ -387,7 +393,7 @@ const AchievementsModal: React.FC<AchievementsModalProps> = ({ open, onClose, us
           </Tabs>
         </Box>
 
-        {/* Содержимое - прокручиваемая область */}
+        {/* Содержимое */}
         <Box sx={{ 
           flex: 1, 
           overflow: 'auto', 
@@ -434,10 +440,7 @@ const AchievementsModal: React.FC<AchievementsModalProps> = ({ open, onClose, us
               gap: 2
             }}>
               {filteredAchievements.map((achievement) => {
-                const isUnlocked = unlockedIds.includes(achievement.id);
-                const isVisible = !achievement.is_secret || isUnlocked;
-
-                if (!isVisible) return null;
+                const isUnlocked = !!achievement.unlocked;
 
                 return (
                   <Box key={achievement.id}>
@@ -513,7 +516,7 @@ const AchievementsModal: React.FC<AchievementsModalProps> = ({ open, onClose, us
                         
                         {achievement.achievement_type && achievement.achievement_type !== 'game' && (
                           <Chip
-                            label={achievement.achievement_type}
+                            label={getAchievementTypeLabel(achievement.achievement_type)}
                             size="small"
                             variant="filled"
                             sx={{
@@ -534,7 +537,7 @@ const AchievementsModal: React.FC<AchievementsModalProps> = ({ open, onClose, us
           )}
         </Box>
 
-        {/* Подвал - фиксированная высота */}
+        {/* Подвал */}
         <Box sx={{ 
           p: 2, 
           bgcolor: 'grey.50', 
