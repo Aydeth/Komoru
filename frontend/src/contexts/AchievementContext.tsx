@@ -35,12 +35,24 @@ export const AchievementProvider: React.FC<AchievementProviderProps> = ({ childr
   const [currentAchievement, setCurrentAchievement] = useState<Achievement | null>(null);
   const isShowingRef = useRef(false);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // Используем ref для доступа к актуальной очереди
+  const achievementsQueueRef = useRef<Achievement[]>([]);
+  
+  // Синхронизируем ref с state
+  React.useEffect(() => {
+    achievementsQueueRef.current = achievementsQueue;
+  }, [achievementsQueue]);
 
   const showAchievement = useCallback((achievement: Achievement) => {
     console.log('🎯 showAchievement вызван с достижением:', achievement);
     
-    // Всегда добавляем в очередь
-    setAchievementsQueue(prev => [...prev, achievement]);
+    // Добавляем в очередь
+    setAchievementsQueue(prev => {
+      const newQueue = [...prev, achievement];
+      console.log('📥 Добавлено в очередь. Теперь в очереди:', newQueue.length);
+      return newQueue;
+    });
     
     // Если ничего не показывается - начинаем показ
     if (!isShowingRef.current) {
@@ -50,20 +62,25 @@ export const AchievementProvider: React.FC<AchievementProviderProps> = ({ childr
 
   const processNextAchievement = useCallback(() => {
     console.log('🔄 Обработка следующего достижения');
+    console.log('📊 Текущая очередь:', achievementsQueueRef.current.length);
     
-    if (achievementsQueue.length === 0) {
-      console.log('📭 Очередь пуста');
+    if (achievementsQueueRef.current.length === 0) {
+      console.log('📭 Очередь пуста, прекращаем показ');
       isShowingRef.current = false;
       setCurrentAchievement(null);
       return;
     }
     
     // Берем первое достижение из очереди
-    const [nextAchievement, ...rest] = achievementsQueue;
+    const [nextAchievement, ...rest] = achievementsQueueRef.current;
     console.log('📤 Показываем:', nextAchievement.title);
+    console.log('📦 Остается в очереди:', rest.length);
     
-    setCurrentAchievement(nextAchievement);
+    // Обновляем state очереди
     setAchievementsQueue(rest);
+    
+    // Показываем достижение
+    setCurrentAchievement(nextAchievement);
     isShowingRef.current = true;
     
     // Автоматическое закрытие через 5 секунд
@@ -75,7 +92,7 @@ export const AchievementProvider: React.FC<AchievementProviderProps> = ({ childr
       console.log('⏰ Автоматическое закрытие:', nextAchievement.title);
       handleClose();
     }, 5000);
-  }, [achievementsQueue]);
+  }, []);
 
   const handleClose = useCallback(() => {
     console.log('❌ Закрытие текущего попапа');
@@ -88,16 +105,21 @@ export const AchievementProvider: React.FC<AchievementProviderProps> = ({ childr
     
     // Сбрасываем текущее достижение
     setCurrentAchievement(null);
+    isShowingRef.current = false;
     
-    // Показываем следующее через небольшую паузу
+    // Проверяем через небольшую паузу, есть ли еще достижения
     setTimeout(() => {
-      processNextAchievement();
+      console.log('🔍 Проверяем очередь после закрытия:', achievementsQueueRef.current.length);
+      if (achievementsQueueRef.current.length > 0) {
+        processNextAchievement();
+      }
     }, 300);
   }, [processNextAchievement]);
 
   const clearAchievements = useCallback(() => {
     console.log('🧹 Очистка всех достижений');
     setAchievementsQueue([]);
+    achievementsQueueRef.current = [];
     setCurrentAchievement(null);
     isShowingRef.current = false;
     
@@ -145,8 +167,13 @@ export const AchievementProvider: React.FC<AchievementProviderProps> = ({ childr
           borderRadius: '12px',
           fontSize: '12px',
           zIndex: 9998,
-        }}>
-          В очереди: {achievementsQueue.length}
+          animation: 'fadeIn 0.3s ease-out',
+          '@keyframes fadeIn': {
+            from: { opacity: 0, transform: 'translateY(-10px)' },
+            to: { opacity: 1, transform: 'translateY(0)' }
+          }
+        } as React.CSSProperties}>
+          📥 В очереди: {achievementsQueue.length}
         </div>
       )}
     </AchievementContext.Provider>
