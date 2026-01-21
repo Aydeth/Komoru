@@ -28,11 +28,33 @@ const AchievementPopup: React.FC<AchievementPopupProps> = ({
 }) => {
   const [visible, setVisible] = useState(true);
   const [slideIn, setSlideIn] = useState(true);
+  const [timeLeft, setTimeLeft] = useState(duration / 1000);
+
+  console.log('🎪 AchievementPopup рендерится с достижением:', achievement.title);
+
+  // Таймер обратного отсчета
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setTimeLeft(prev => {
+        if (prev <= 1) {
+          clearInterval(interval);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, []);
 
   // Автоматическое скрытие через duration миллисекунд
   useEffect(() => {
+    console.log(`⏱️ Таймер запущен: ${duration}мс`);
+    
     const timer = setTimeout(() => {
+      console.log('⏰ Таймер сработал, скрываем попап');
       setSlideIn(false);
+      
       // Ждём окончания анимации скрытия
       setTimeout(() => {
         setVisible(false);
@@ -40,11 +62,15 @@ const AchievementPopup: React.FC<AchievementPopupProps> = ({
       }, 300);
     }, duration);
 
-    return () => clearTimeout(timer);
+    return () => {
+      console.log('🧹 Очистка таймера');
+      clearTimeout(timer);
+    };
   }, [duration, onClose]);
 
   // Ручное закрытие
   const handleClose = () => {
+    console.log('👆 Ручное закрытие попапа');
     setSlideIn(false);
     setTimeout(() => {
       setVisible(false);
@@ -52,7 +78,12 @@ const AchievementPopup: React.FC<AchievementPopupProps> = ({
     }, 300);
   };
 
-  if (!visible) return null;
+  if (!visible) {
+    console.log('👻 Попап невидим, не рендерим');
+    return null;
+  }
+
+  console.log('🎨 Рендерим попап');
 
   return (
     <Fade in={visible}>
@@ -79,7 +110,13 @@ const AchievementPopup: React.FC<AchievementPopupProps> = ({
               bgcolor: 'background.paper',
               border: '2px solid',
               borderColor: 'primary.main',
-              pointerEvents: 'auto'
+              pointerEvents: 'auto',
+              animation: 'bounceIn 0.5s',
+              '@keyframes bounceIn': {
+                '0%': { transform: 'scale(0.8)', opacity: 0 },
+                '50%': { transform: 'scale(1.05)' },
+                '100%': { transform: 'scale(1)', opacity: 1 }
+              }
             }}
           >
             {/* Заголовок */}
@@ -97,20 +134,25 @@ const AchievementPopup: React.FC<AchievementPopupProps> = ({
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                 <EmojiEventsIcon fontSize="small" />
                 <Typography variant="subtitle2" fontWeight={600}>
-                  Получено достижение
+                  Получено достижение!
                 </Typography>
               </Box>
               
-              <IconButton
-                size="small"
-                onClick={handleClose}
-                sx={{
-                  color: 'primary.contrastText',
-                  '&:hover': { bgcolor: 'rgba(255,255,255,0.1)' }
-                }}
-              >
-                <CloseIcon fontSize="small" />
-              </IconButton>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Typography variant="caption" sx={{ opacity: 0.8 }}>
+                  {timeLeft}с
+                </Typography>
+                <IconButton
+                  size="small"
+                  onClick={handleClose}
+                  sx={{
+                    color: 'primary.contrastText',
+                    '&:hover': { bgcolor: 'rgba(255,255,255,0.1)' }
+                  }}
+                >
+                  <CloseIcon fontSize="small" />
+                </IconButton>
+              </Box>
             </Box>
 
             {/* Содержимое */}
@@ -151,7 +193,7 @@ const AchievementPopup: React.FC<AchievementPopupProps> = ({
                 </Box>
               </Box>
 
-              {/* Прогрессбар (опционально) */}
+              {/* Прогрессбар */}
               <Box
                 sx={{
                   height: 4,
@@ -166,17 +208,17 @@ const AchievementPopup: React.FC<AchievementPopupProps> = ({
                     height: '100%',
                     bgcolor: 'primary.main',
                     width: '100%',
-                    animation: 'progress 5s linear forwards',
+                    animation: `progress ${duration}ms linear forwards`,
                     '@keyframes progress': {
-                      '0%': { width: '0%' },
-                      '100%': { width: '100%' }
+                      '0%': { width: '100%' },
+                      '100%': { width: '0%' }
                     }
                   }}
                 />
               </Box>
 
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1, textAlign: 'center' }}>
-                Уведомление скроется через {duration / 1000} сек
+                Нажмите ✕ чтобы закрыть или подождите {timeLeft} секунд
               </Typography>
             </Box>
           </Paper>

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, ReactNode } from 'react';
+import React, { createContext, useContext, useState, ReactNode, useCallback } from 'react';
 import AchievementPopup from '../components/Achievements/AchievementPopup';
 
 interface Achievement {
@@ -8,6 +8,7 @@ interface Achievement {
   xp_reward: number;
   description?: string;
   achievement_type?: string;
+  is_secret?: boolean;
 }
 
 interface AchievementContextType {
@@ -32,42 +33,63 @@ interface AchievementProviderProps {
 export const AchievementProvider: React.FC<AchievementProviderProps> = ({ children }) => {
   const [achievements, setAchievements] = useState<Achievement[]>([]);
   const [currentAchievement, setCurrentAchievement] = useState<Achievement | null>(null);
+  const [isShowing, setIsShowing] = useState(false);
 
-  const showAchievement = (achievement: Achievement) => {
-    // Добавляем в очередь
-    setAchievements(prev => [...prev, achievement]);
+  const showAchievement = useCallback((achievement: Achievement) => {
+    console.log('🎯 showAchievement вызван с достижением:', achievement);
     
-    // Если нет текущего показанного - показываем сразу
-    if (!currentAchievement) {
-      showNextAchievement();
+    // Если уже показываем достижение, добавляем в очередь
+    if (isShowing) {
+      console.log('📥 Добавляем в очередь:', achievement.title);
+      setAchievements(prev => [...prev, achievement]);
+    } else {
+      // Иначе показываем сразу
+      console.log('🎪 Показываем достижение:', achievement.title);
+      setCurrentAchievement(achievement);
+      setIsShowing(true);
     }
-  };
+  }, [isShowing]);
 
-  const showNextAchievement = () => {
+  const showNextAchievement = useCallback(() => {
+    console.log('🔄 Показываем следующее достижение из очереди');
+    
     if (achievements.length > 0) {
       const [next, ...rest] = achievements;
+      console.log('📤 Берем из очереди:', next.title);
       setCurrentAchievement(next);
       setAchievements(rest);
+      setIsShowing(true);
     } else {
+      console.log('📭 Очередь пуста, скрываем попап');
       setCurrentAchievement(null);
+      setIsShowing(false);
     }
-  };
+  }, [achievements]);
 
-  const handleClose = () => {
-    setCurrentAchievement(null);
-    // Показываем следующее достижение через небольшую задержку
+  const handleClose = useCallback(() => {
+    console.log('❌ Закрытие попапа, показываем следующее');
+    setIsShowing(false);
+    
+    // Показываем следующее достижение через задержку
     setTimeout(() => {
       showNextAchievement();
-    }, 500);
-  };
+    }, 500); // Задержка для плавного перехода
+  }, [showNextAchievement]);
 
-  const clearAchievements = () => {
+  const clearAchievements = useCallback(() => {
+    console.log('🧹 Очистка всех достижений');
     setAchievements([]);
     setCurrentAchievement(null);
+    setIsShowing(false);
+  }, []);
+
+  const value = {
+    showAchievement,
+    clearAchievements
   };
 
   return (
-    <AchievementContext.Provider value={{ showAchievement, clearAchievements }}>
+    <AchievementContext.Provider value={value}>
       {children}
       
       {/* Показываем текущее достижение */}
