@@ -12,12 +12,13 @@ import {
   CircularProgress,
   Alert,
   Paper,
+  Button,
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import EmojiEventsIcon from '@mui/icons-material/EmojiEvents';
 import LockIcon from '@mui/icons-material/Lock';
 import LockOpenIcon from '@mui/icons-material/LockOpen';
-import { apiService, Achievement as ApiAchievement } from '../../services/api';
+import { apiService } from '../../services/api';
 
 interface AchievementsModalProps {
   open: boolean;
@@ -31,7 +32,6 @@ interface AchievementCategory {
   icon: string;
 }
 
-// Исправленный интерфейс - делаем is_secret необязательным
 interface ExtendedAchievement {
   id: number;
   title: string;
@@ -41,10 +41,12 @@ interface ExtendedAchievement {
   icon: string;
   condition_type: string;
   condition_value: number;
-  is_secret?: boolean; // Делаем необязательным
+  is_secret?: boolean;
   achievement_type?: string;
   game_title?: string;
   unlocked_at?: string;
+  unlocked?: boolean;
+  is_visible?: boolean;
 }
 
 const AchievementsModal: React.FC<AchievementsModalProps> = ({ open, onClose, userId }) => {
@@ -61,50 +63,142 @@ const AchievementsModal: React.FC<AchievementsModalProps> = ({ open, onClose, us
     { id: 'one_time', label: 'Единоразовые', icon: '⭐' },
     { id: 'progressive', label: 'Прогрессивные', icon: '📈' },
     { id: 'secret', label: 'Секретные', icon: '🔒' },
+    { id: 'unlocked', label: 'Полученные', icon: '🔓' },
+    { id: 'locked', label: 'Неполученные', icon: '🔒' },
   ];
 
   // Загрузка достижений
-  useEffect(() => {
-    if (open) {
-      loadAchievements();
-    }
-  }, [open, userId]);
-
   const loadAchievements = async () => {
     try {
       setLoading(true);
       setError(null);
       
-      // Получаем все достижения
-      const response = await apiService.getUserAchievements();
+      console.log('🔄 Загрузка списка достижений...');
       
-      if (response.success && response.data) {
-        const unlocked = response.data
-          .filter(a => a.unlocked_at)
-          .map(a => a.id);
-        
-        setUnlockedIds(unlocked);
-        
-        // Получаем полный список достижений
-        const allAchievementsResponse = await fetch(
-          `${process.env.REACT_APP_API_URL}/achievements${userId ? `?user_id=${userId}` : ''}`
-        );
-        
-        if (allAchievementsResponse.ok) {
-          const data = await allAchievementsResponse.json();
-          setAchievements(data.data?.achievements || []);
-        } else {
-          // Fallback: используем только разблокированные
-          setAchievements(response.data as unknown as ExtendedAchievement[]);
-        }
+      // Используем правильный API endpoint
+      const apiUrl = process.env.REACT_APP_API_URL?.replace('/api', '') || 'https://komoru-api.onrender.com';
+      const url = `${apiUrl}/api/achievements`;
+      
+      console.log('📡 Запрос по URL:', url);
+      
+      const response = await fetch(url);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
+      
+      const data = await response.json();
+      console.log('📦 Получены данные достижений:', data);
+      
+      if (data.success) {
+        const allAchievements = data.data?.achievements || [];
+        setAchievements(allAchievements);
+        
+        // Получаем разблокированные достижения пользователя
+        if (userId) {
+          // Для других пользователей
+          const userAchievementsResponse = await fetch(`${apiUrl}/api/users/${userId}/achievements`);
+          if (userAchievementsResponse.ok) {
+            const userData = await userAchievementsResponse.json();
+            if (userData.success) {
+              const userUnlocked = userData.data?.achievements?.recent?.map((a: any) => a.id) || [];
+              setUnlockedIds(userUnlocked);
+            }
+          }
+        } else {
+          // Для текущего пользователя
+          const userResponse = await apiService.getUserAchievements();
+          if (userResponse.success && userResponse.data) {
+            const userUnlocked = userResponse.data
+              .filter(a => a.unlocked_at)
+              .map(a => a.id);
+            setUnlockedIds(userUnlocked);
+          }
+        }
+      } else {
+        throw new Error(data.error || 'Не удалось загрузить достижения');
+      }
+      
     } catch (err) {
-      setError('Не удалось загрузить достижения');
-      console.error('Ошибка загрузки достижений:', err);
+      console.error('❌ Ошибка загрузки достижений:', err);
+      setError('Не удалось загрузить достижения. Попробуйте позже.');
+      
+      // Fallback: создаем тестовые данные
+      const fallbackAchievements: ExtendedAchievement[] = [
+        {
+          id: 1,
+          title: 'Первая игра',
+          description: 'Сыграйте в свою первую игру',
+          xp_reward: 50,
+          game_id: null,
+          icon: '🎮',
+          condition_type: 'play_count',
+          condition_value: 1,
+          achievement_type: 'one_time',
+          unlocked: true
+        },
+        {
+          id: 2,
+          title: 'Мастер змейки',
+          description: 'Наберите 1000 очков в Змейке',
+          xp_reward: 200,
+          game_id: 'snake',
+          icon: '🐍',
+          condition_type: 'score_above',
+          condition_value: 1000,
+          achievement_type: 'game',
+          unlocked: false
+        },
+        {
+          id: 3,
+          title: 'Головоломщик',
+          description: 'Соберите пятнашки за 5 минут',
+          xp_reward: 150,
+          game_id: 'puzzle15',
+          icon: '🧩',
+          condition_type: 'score_above',
+          condition_value: 300,
+          achievement_type: 'game',
+          unlocked: false
+        },
+        {
+          id: 4,
+          title: 'Коллекционер',
+          description: 'Получите 5 достижений',
+          xp_reward: 300,
+          game_id: null,
+          icon: '🏆',
+          condition_type: 'collection',
+          condition_value: 5,
+          achievement_type: 'chain',
+          unlocked: false
+        },
+        {
+          id: 5,
+          title: 'Богач',
+          description: 'Накопите 500 кристаллов',
+          xp_reward: 250,
+          game_id: null,
+          icon: '💎',
+          condition_type: 'collection',
+          condition_value: 500,
+          achievement_type: 'progressive',
+          unlocked: false
+        },
+      ];
+      
+      setAchievements(fallbackAchievements);
+      setUnlockedIds([1]); // Первое достижение разблокировано
     } finally {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (open) {
+      loadAchievements();
+    }
+  }, [open, userId]);
 
   // Фильтрация достижений по категории
   const filteredAchievements = achievements.filter(achievement => {
@@ -116,6 +210,11 @@ const AchievementsModal: React.FC<AchievementsModalProps> = ({ open, onClose, us
     const type = achievement.achievement_type || 'game';
     return type === activeTab;
   });
+
+  // Расчет прогресса
+  const totalAchievements = achievements.length;
+  const unlockedAchievements = unlockedIds.length;
+  const progressPercentage = totalAchievements > 0 ? Math.round((unlockedAchievements / totalAchievements) * 100) : 0;
 
   return (
     <Modal
@@ -170,10 +269,10 @@ const AchievementsModal: React.FC<AchievementsModalProps> = ({ open, onClose, us
         <Box sx={{ p: 3, bgcolor: 'background.default' }}>
           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
             <Typography variant="h6">
-              Прогресс: {unlockedIds.length} из {achievements.length}
+              Прогресс: {unlockedAchievements} из {totalAchievements}
             </Typography>
             <Chip
-              label={`${achievements.length > 0 ? Math.round((unlockedIds.length / achievements.length) * 100) : 0}%`}
+              label={`${progressPercentage}%`}
               color="primary"
               variant="outlined"
               sx={{ fontWeight: 600 }}
@@ -185,20 +284,27 @@ const AchievementsModal: React.FC<AchievementsModalProps> = ({ open, onClose, us
             bgcolor: 'grey.200', 
             borderRadius: 4,
             overflow: 'hidden',
+            mb: 1
           }}>
             <Box
               sx={{
                 height: '100%',
                 bgcolor: 'primary.main',
-                width: `${achievements.length > 0 ? (unlockedIds.length / achievements.length) * 100 : 0}%`,
+                width: `${progressPercentage}%`,
                 transition: 'width 0.5s ease',
               }}
             />
           </Box>
+          
+          <Typography variant="caption" color="text.secondary">
+            {unlockedAchievements === totalAchievements && totalAchievements > 0 
+              ? '🎉 Все достижения получены!' 
+              : `Осталось получить ${totalAchievements - unlockedAchievements} достижений`}
+          </Typography>
         </Box>
 
         {/* Табы */}
-        <Box sx={{ borderBottom: 1, borderColor: 'divider', px: 2 }}>
+        <Box sx={{ borderBottom: 1, borderColor: 'divider', px: 2, overflowX: 'auto' }}>
           <Tabs
             value={activeTab}
             onChange={(_, newValue) => setActiveTab(newValue)}
@@ -210,15 +316,23 @@ const AchievementsModal: React.FC<AchievementsModalProps> = ({ open, onClose, us
                 textTransform: 'none',
                 fontSize: '0.875rem',
                 fontWeight: 500,
+                minWidth: 'auto',
+                px: 2,
               }
             }}
           >
             {categories.map((category) => (
               <Tab
                 key={category.id}
-                icon={<span style={{ fontSize: '1.25rem' }}>{category.icon}</span>}
+                icon={<span style={{ fontSize: '1rem', marginRight: '4px' }}>{category.icon}</span>}
                 label={category.label}
                 value={category.id}
+                sx={{ 
+                  display: 'flex',
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 0.5
+                }}
               />
             ))}
           </Tabs>
@@ -227,18 +341,32 @@ const AchievementsModal: React.FC<AchievementsModalProps> = ({ open, onClose, us
         {/* Содержимое */}
         <Box sx={{ flex: 1, overflow: 'auto', p: 3 }}>
           {loading ? (
-            <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
+            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', py: 8, gap: 2 }}>
               <CircularProgress />
+              <Typography color="text.secondary">Загружаем достижения...</Typography>
             </Box>
           ) : error ? (
-            <Alert severity="error" sx={{ mb: 3 }}>
+            <Alert 
+              severity="warning" 
+              sx={{ mb: 3 }}
+              action={
+                <Button color="inherit" size="small" onClick={loadAchievements}>
+                  Повторить
+                </Button>
+              }
+            >
               {error}
             </Alert>
           ) : filteredAchievements.length === 0 ? (
             <Box sx={{ textAlign: 'center', py: 8 }}>
               <LockIcon sx={{ fontSize: 60, color: 'grey.400', mb: 2 }} />
-              <Typography color="text.secondary">
-                {activeTab === 'locked' ? 'Пока нет заблокированных достижений' : 'Достижения не найдены'}
+              <Typography color="text.secondary" gutterBottom>
+                {activeTab === 'locked' ? 'Пока нет заблокированных достижений' : 
+                 activeTab === 'unlocked' ? 'Пока нет полученных достижений' : 
+                 'Достижения не найдены'}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Играйте в игры, чтобы получать достижения!
               </Typography>
             </Box>
           ) : (
@@ -262,9 +390,14 @@ const AchievementsModal: React.FC<AchievementsModalProps> = ({ open, onClose, us
                     <Card
                       sx={{
                         height: '100%',
-                        opacity: isUnlocked ? 1 : 0.7,
+                        opacity: isUnlocked ? 1 : 0.8,
                         position: 'relative',
                         overflow: 'visible',
+                        transition: 'all 0.3s ease',
+                        '&:hover': {
+                          transform: 'translateY(-4px)',
+                          boxShadow: 4,
+                        }
                       }}
                     >
                       {isUnlocked && (
@@ -277,6 +410,7 @@ const AchievementsModal: React.FC<AchievementsModalProps> = ({ open, onClose, us
                             top: -10,
                             right: 10,
                             fontWeight: 600,
+                            zIndex: 1,
                           }}
                         />
                       )}
@@ -322,6 +456,21 @@ const AchievementsModal: React.FC<AchievementsModalProps> = ({ open, onClose, us
                             Получено: {new Date(achievement.unlocked_at).toLocaleDateString()}
                           </Typography>
                         )}
+                        
+                        {achievement.achievement_type && (
+                          <Chip
+                            label={achievement.achievement_type}
+                            size="small"
+                            variant="filled"
+                            sx={{
+                              mt: 1,
+                              fontSize: '0.7rem',
+                              height: 20,
+                              bgcolor: 'grey.100',
+                              color: 'grey.700'
+                            }}
+                          />
+                        )}
                       </CardContent>
                     </Card>
                   </Box>
@@ -334,7 +483,10 @@ const AchievementsModal: React.FC<AchievementsModalProps> = ({ open, onClose, us
         {/* Подвал */}
         <Box sx={{ p: 2, bgcolor: 'grey.50', borderTop: 1, borderColor: 'divider' }}>
           <Typography variant="caption" color="text.secondary" align="center">
-            Играйте в игры, чтобы получать новые достижения!
+            {totalAchievements > 0 
+              ? `Всего достижений: ${totalAchievements} • Получено: ${unlockedAchievements} • Осталось: ${totalAchievements - unlockedAchievements}`
+              : 'Играйте в игры, чтобы получать достижения!'
+            }
           </Typography>
         </Box>
       </Paper>

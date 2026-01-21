@@ -791,6 +791,70 @@ app.get('/api/users/:userId/achievements', async (req, res) => {
   }
 });
 
+// 15. Получить список всех достижений (упрощенная версия)
+app.get('/api/achievements', async (req, res) => {
+  try {
+    console.log('📊 Запрос списка достижений');
+    
+    // Простой запрос без сложной логики
+    const result = await db.query(`
+      SELECT 
+        id,
+        title,
+        description,
+        xp_reward,
+        icon,
+        game_id,
+        COALESCE(achievement_type, 'game') as achievement_type,
+        COALESCE(is_hidden, FALSE) as is_hidden,
+        COALESCE(is_secret, FALSE) as is_secret,
+        COALESCE(is_active, TRUE) as is_active
+      FROM achievements 
+      WHERE COALESCE(is_active, TRUE) = TRUE
+      ORDER BY COALESCE(sort_order, 0), id
+      LIMIT 20
+    `);
+    
+    // Для текущего пользователя проверяем разблокированные
+    const userId = req.headers['x-user-id'] || req.query.userId;
+    let unlockedIds = [];
+    
+    if (userId && userId !== 'guest-123') {
+      try {
+        const unlockedResult = await db.query(
+          'SELECT achievement_id FROM user_achievements WHERE user_id = $1',
+          [userId]
+        );
+        unlockedIds = unlockedResult.rows.map(row => row.achievement_id);
+      } catch (err) {
+        console.log('⚠️ Не удалось получить разблокированные:', err.message);
+      }
+    }
+    
+    const achievements = result.rows.map(row => ({
+      ...row,
+      unlocked: unlockedIds.includes(row.id),
+      is_visible: !row.is_hidden || unlockedIds.includes(row.id)
+    }));
+    
+    res.json({
+      success: true,
+      data: {
+        total: achievements.length,
+        unlocked: unlockedIds.length,
+        achievements: achievements.filter(a => a.is_visible)
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ Ошибка при получении достижений:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Не удалось загрузить достижения'
+    });
+  }
+});
+
 // ==================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ====================
 
 // ==================== УЛУЧШЕННАЯ ФУНКЦИЯ ПРОВЕРКИ ДОСТИЖЕНИЙ ====================

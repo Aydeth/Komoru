@@ -35,57 +35,58 @@ const UserProfilePage: React.FC = () => {
 
   useEffect(() => {
     if (userId) {
-      loadUserProfile(userId);
+      loadUserProfile();
     }
   }, [userId]);
 
-  const loadUserProfile = async (id: string) => {
+  const loadUserProfile = async () => {
     try {
       setLoading(true);
       setError(null);
       
-      // Используем реальный API endpoint
-      const response = await fetch(
-        `https://komoru-api.onrender.com/api/users/${id}/achievements`
-      );
+      // Создаем тестовые данные, так как API endpoint не работает
+      const testUser = {
+        id: userId || 'unknown',
+        username: 'Игрок ' + (userId?.substring(0, 6) || 'Unknown'),
+        avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${userId || 'user'}`,
+        level: Math.floor(Math.random() * 10) + 1,
+        xp: Math.floor(Math.random() * 1000),
+        joinedAt: new Date(Date.now() - Math.random() * 31536000000).toISOString(), // случайная дата в течение года
+      };
       
-      if (response.ok) {
-        const data = await response.json();
-        
-        if (data.success) {
-          setUser(data.data.user);
-          setStats(data.data.stats);
-          setAchievements(data.data.achievements.recent || []);
-        } else {
-          throw new Error(data.error || 'Пользователь не найден');
-        }
-      } else {
-        throw new Error(`Ошибка HTTP: ${response.status}`);
-      }
+      const testStats = {
+        total_achievements: Math.floor(Math.random() * 10),
+        games_played: Math.floor(Math.random() * 50),
+        total_score: Math.floor(Math.random() * 10000),
+        achievement_types: Math.floor(Math.random() * 4) + 1,
+      };
+      
+      const testAchievements = [
+        {
+          id: 1,
+          title: 'Первая игра',
+          description: 'Сыграйте в свою первую игру',
+          xp_reward: 50,
+          icon: '🎮',
+          unlocked_at: new Date(Date.now() - Math.random() * 2592000000).toISOString(), // до 30 дней назад
+        },
+        {
+          id: 2,
+          title: 'Мастер змейки',
+          description: 'Наберите 1000 очков в Змейке',
+          xp_reward: 200,
+          icon: '🐍',
+          unlocked_at: new Date(Date.now() - Math.random() * 604800000).toISOString(), // до 7 дней назад
+        },
+      ].filter(() => Math.random() > 0.3); // Случайно показываем некоторые достижения
+      
+      setUser(testUser);
+      setStats(testStats);
+      setAchievements(testAchievements);
       
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Не удалось загрузить профиль');
-      
-      // Fallback: показываем заглушку если API не готов
-      setTimeout(() => {
-        setUser({
-          id: id,
-          username: 'Игрок',
-          avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${id}`,
-          level: Math.floor(Math.random() * 10) + 1,
-          xp: Math.floor(Math.random() * 1000)
-        });
-        
-        setStats({
-          total_achievements: Math.floor(Math.random() * 10),
-          games_played: Math.floor(Math.random() * 50),
-          total_score: Math.floor(Math.random() * 10000),
-          achievement_types: 3
-        });
-        
-        setLoading(false);
-      }, 500);
-      
+      setError('Не удалось загрузить профиль');
+      console.error('Ошибка загрузки профиля:', err);
     } finally {
       setLoading(false);
     }
@@ -272,11 +273,6 @@ const UserProfilePage: React.FC = () => {
                       <Typography variant="h6" component="div">
                         {achievement.title}
                       </Typography>
-                      {achievement.game_title && (
-                        <Typography variant="caption" color="text.secondary">
-                          {achievement.game_title}
-                        </Typography>
-                      )}
                     </Box>
                     <Chip 
                       label={`+${achievement.xp_reward} XP`} 

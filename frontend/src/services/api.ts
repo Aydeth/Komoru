@@ -2,7 +2,7 @@ import axios from 'axios';
 import { useAchievements } from '../contexts/AchievementContext';
 let achievementCallback: ((achievement: any) => void) | null = null;
 
-export const setAchievementCallback = (callback: (achievement: any) => void) => {
+export const setAchievementCallback = (callback: ((achievement: any) => void) | null) => {
   achievementCallback = callback;
 };
 
