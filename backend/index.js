@@ -679,8 +679,7 @@ app.get('/api/users/current/achievements/latest', async (req, res) => {
   }
 });
 
-// 13. Получить достижения конкретного пользователя (публичный доступ)
-// Получить достижения конкретного пользователя (публичный доступ) - ИСПРАВЛЕННАЯ ВЕРСИЯ
+// 13. Получить достижения конкретного пользователя (публичный доступ) - ИСПРАВЛЕННАЯ ВЕРСИЯ
 app.get('/api/users/:userId/achievements', async (req, res) => {
   let client;
   try {
@@ -706,15 +705,15 @@ app.get('/api/users/:userId/achievements', async (req, res) => {
     
     const user = userCheck.rows[0];
     
-    // 2. ВАЖНО: Получаем количество сессий - СЧИТАЕМ ВСЕ ЗАПИСИ В game_scores
+    // 2. ИСПРАВЛЕНИЕ: Получаем количество сессий - СЧИТАЕМ ВСЕ ЗАПИСИ В game_scores
     const sessionsQuery = await client.query(
-      'SELECT COUNT(id) as sessions_count FROM game_scores WHERE user_id = $1',
+      'SELECT COUNT(*) as sessions_count FROM game_scores WHERE user_id = $1',
       [userId]
     );
     const sessionsCount = parseInt(sessionsQuery.rows[0].sessions_count) || 0;
-    console.log(`🎮 Количество сессий для ${userId}: ${sessionsCount} (запрос: COUNT(id))`);
+    console.log(`🎮 Количество сессий для ${userId}: ${sessionsCount} (запрос: COUNT(*))`);
     
-    // 3. Для сравнения - сколько уникальных игр
+    // 3. Для сравнения - сколько уникальных игр (оставим на всякий случай)
     const uniqueGamesQuery = await client.query(
       'SELECT COUNT(DISTINCT game_id) as unique_games FROM game_scores WHERE user_id = $1',
       [userId]
@@ -791,9 +790,10 @@ app.get('/api/users/:userId/achievements', async (req, res) => {
         },
         stats: {
           total_achievements: achievementsCount,
-          games_played: sessionsCount,  // ВОТ ОНО! Количество сессий, а не уникальных игр
+          games_played: sessionsCount,  // ВОТ ОНО! Теперь это количество сессий
           total_score: totalScore,
-          achievement_types: Object.keys(achievementsByType).length
+          achievement_types: Object.keys(achievementsByType).length,
+          unique_games: uniqueGames  // Добавляем для информации
         },
         achievements: {
           total: achievementsResult.rows.length,
@@ -834,7 +834,7 @@ app.get('/api/debug/user-stats/:userId', async (req, res) => {
     
     console.log(`🔍 Отладка статистики пользователя ${userId}`);
     
-    // 1. Сколько всего записей в game_scores
+    // 1. Сколько всего записей в game_scores (сессии)
     const totalSessions = await db.query(
       'SELECT COUNT(*) as count FROM game_scores WHERE user_id = $1',
       [userId]
