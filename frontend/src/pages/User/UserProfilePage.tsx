@@ -50,19 +50,6 @@ const formatNumber = (num: number): string => {
   return num.toString();
 };
 
-// Функция для преобразования типа достижения в читаемый вид
-const getAchievementTypeLabel = (type: string): string => {
-  const labels: Record<string, string> = {
-    'game': 'Игровые',
-    'one_time': 'Единоразовые',
-    'progressive': 'Прогрессивные',
-    'secret': 'Секретные',
-    'chain': 'Цепочка',
-    'collection': 'Коллекция',
-  };
-  return labels[type] || type;
-};
-
 interface UserProfile {
   user: {
     id: string;
@@ -78,11 +65,17 @@ interface UserProfile {
     total_score: number;
     achievement_types: number;
     currency?: number;
+    unique_games?: number; // Добавляем для отладки
   };
   achievements: {
     total: number;
     by_type: Record<string, any[]>;
     recent: any[];
+  };
+  debug?: {
+    total_sessions?: number;
+    unique_games?: number;
+    sessions?: any[];
   };
 }
 
@@ -101,62 +94,79 @@ const UserProfilePage: React.FC = () => {
   const RETRY_DELAY = 1000 * Math.min(retryCount + 1, 3);
 
   const loadUserProfile = useCallback(async () => {
-  if (!userId) return;
-  
-  try {
-    setLoading(true);
-    setError(null);
+    if (!userId) return;
     
-    console.log(`🔄 Загрузка профиля пользователя ${userId} (попытка ${retryCount + 1}/${MAX_RETRIES})...`);
-    
-    const response = await apiService.getUserAchievementsById(userId);
-    
-    if (response.success && response.data) {
-      const data = response.data;
+    try {
+      setLoading(true);
+      setError(null);
       
-      // Теперь games_played - это реальное количество сессий!
-      const userProfile: UserProfile = {
-        user: {
-          id: data.user.id,
-          username: data.user.username || 'Игрок',
-          avatar: data.user.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${data.user.id}`,
-          level: data.user.level || 1,
-          xp: data.user.xp || 0,
-          currency: data.user.currency || 0,
-        },
-        stats: {
-          total_achievements: parseInt(data.stats.total_achievements) || 0,
-          games_played: parseInt(data.stats.games_played) || 0, // Теперь это сессии!
-          total_score: parseInt(data.stats.total_score) || 0,
-          achievement_types: data.stats.achievement_types || 0,
-          currency: data.user.currency || 0,
-        },
-        achievements: {
-          total: data.achievements.total || 0,
-          by_type: data.achievements.by_type || {},
-          recent: data.achievements.recent || [],
-        },
-      };
+      console.log(`🔄 Загрузка профиля пользователя ${userId} (попытка ${retryCount + 1}/${MAX_RETRIES})...`);
       
-      setProfile(userProfile);
-      setRetryCount(0);
-      console.log(`✅ Профиль пользователя ${userId} загружен`);
-      console.log(`🎮 Игровых сессий: ${userProfile.stats.games_played}`);
-    } else {
-      throw new Error(response.error || 'Не удалось загрузить профиль');
+      const response = await apiService.getUserAchievementsById(userId);
+      
+      if (response.success && response.data) {
+        const data = response.data;
+        
+        // Для отладки получаем дополнительную статистику
+        let debugInfo = {};
+        try {
+          const debugResponse = await apiService.getUserById(userId);
+          if (debugResponse.success && debugResponse.data) {
+            debugInfo = debugResponse.data;
+            console.log('🐛 Отладочная информация:', debugInfo);
+          }
+        } catch (debugError) {
+          console.warn('⚠️ Не удалось получить отладочную информацию:', debugError);
+        }
+        
+        const userProfile: UserProfile = {
+          user: {
+            id: data.user.id,
+            username: data.user.username || 'Игрок',
+            avatar: data.user.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${data.user.id}`,
+            level: data.user.level || 1,
+            xp: data.user.xp || 0,
+            currency: data.user.currency || 0,
+          },
+          stats: {
+            total_achievements: parseInt(data.stats.total_achievements) || 0,
+            games_played: parseInt(data.stats.games_played) || 0, // Теперь это сессии!
+            total_score: parseInt(data.stats.total_score) || 0,
+            achievement_types: data.stats.achievement_types || 0,
+            currency: data.user.currency || 0,
+          },
+          achievements: {
+            total: data.achievements.total || 0,
+            by_type: data.achievements.by_type || {},
+            recent: data.achievements.recent || [],
+          },
+          debug: debugInfo as any,
+        };
+        
+        // Если есть отладочная информация - используем её для уточнения данных
+        if (debugInfo && (debugInfo as any).data?.total_sessions !== undefined) {
+          console.log(`🎮 Статистика из отладки: ${(debugInfo as any).data.total_sessions} сессий`);
+        }
+        
+        setProfile(userProfile);
+        setRetryCount(0);
+        console.log(`✅ Профиль пользователя ${userId} загружен`);
+        console.log(`🎮 Статистика: ${userProfile.stats.games_played} сессий, ${userProfile.stats.total_score} очков`);
+      } else {
+        throw new Error(response.error || 'Не удалось загрузить профиль');
+      }
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Ошибка при загрузке профиля';
+      setError(errorMessage);
+      console.error(`❌ Ошибка загрузки профиля (попытка ${retryCount + 1}):`, err);
+      
+      if (retryCount < MAX_RETRIES - 1) {
+        console.log(`⏱️  Повтор через ${RETRY_DELAY}мс...`);
+      }
+    } finally {
+      setLoading(false);
     }
-  } catch (err) {
-    const errorMessage = err instanceof Error ? err.message : 'Ошибка при загрузке профиля';
-    setError(errorMessage);
-    console.error(`❌ Ошибка загрузки профиля (попытка ${retryCount + 1}):`, err);
-    
-    if (retryCount < MAX_RETRIES - 1) {
-      console.log(`⏱️  Повтор через ${RETRY_DELAY}мс...`);
-    }
-  } finally {
-    setLoading(false);
-  }
-}, [userId, retryCount]);
+  }, [userId, retryCount]);
 
   // Автоматический повтор при ошибке
   useEffect(() => {
@@ -283,6 +293,16 @@ const UserProfilePage: React.FC = () => {
   }
 
   const currency = profile.stats.currency || profile.user.currency || 0;
+  const totalSessions = profile.debug?.total_sessions || profile.stats.games_played;
+  
+  // Добавляем отладочную информацию для понимания ситуации
+  const debugInfo = profile.debug ? (
+    <Box sx={{ mt: 2, p: 1, bgcolor: '#f5f5f5', borderRadius: 1, fontSize: '0.8rem' }}>
+      <Typography variant="caption" color="text.secondary">
+        Отладка: сессий={totalSessions}, уникальных игр={profile.debug?.unique_games || 'N/A'}
+      </Typography>
+    </Box>
+  ) : null;
 
   return (
     <Container maxWidth="lg">
@@ -425,11 +445,12 @@ const UserProfilePage: React.FC = () => {
                     <CardContent sx={{ textAlign: 'center', py: 3 }}>
                       <GamesIcon color="secondary" sx={{ fontSize: 48, mb: 2 }} />
                       <Typography variant="h3" color="secondary" sx={{ fontWeight: 700, mb: 1 }}>
-                        {profile.stats.games_played}
+                        {totalSessions}
                       </Typography>
                       <Typography variant="body2" color="text.secondary">
                         Игровых сессий
                       </Typography>
+                      {debugInfo}
                     </CardContent>
                   </Card>
                   
@@ -618,7 +639,7 @@ const UserProfilePage: React.FC = () => {
                           </ListItemIcon>
                           <ListItemText
                             primary="Игровых сессий"
-                            secondary={profile.stats.games_played}
+                            secondary={totalSessions}
                           />
                         </ListItem>
                         <Divider />
@@ -628,14 +649,14 @@ const UserProfilePage: React.FC = () => {
                           </ListItemIcon>
                           <ListItemText
                             primary="Средний счёт за сессию"
-                            secondary={profile.stats.games_played > 0 
-                              ? formatNumber(Math.round(profile.stats.total_score / profile.stats.games_played))
+                            secondary={totalSessions > 0 
+                              ? formatNumber(Math.round(profile.stats.total_score / totalSessions))
                               : '0'
                             }
                           />
                           <Typography variant="body2" color="text.secondary">
-                            {profile.stats.games_played > 0 
-                              ? Math.round(profile.stats.total_score / profile.stats.games_played).toLocaleString()
+                            {totalSessions > 0 
+                              ? Math.round(profile.stats.total_score / totalSessions).toLocaleString()
                               : '0'
                             }
                           </Typography>
