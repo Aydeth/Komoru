@@ -1,4 +1,10 @@
 import axios from 'axios';
+import { useAchievements } from '../contexts/AchievementContext';
+let achievementCallback: ((achievement: any) => void) | null = null;
+
+export const setAchievementCallback = (callback: (achievement: any) => void) => {
+  achievementCallback = callback;
+};
 
 // Базовый URL нашего бэкенда на Render
 const API_BASE_URL = 'https://komoru-api.onrender.com/api';
@@ -207,12 +213,19 @@ export const apiService = {
     console.log(`💾 Сохранение результата для пользователя: ${userId} (игра: ${gameId}, счёт: ${score})`);
     
     const response = await api.post(`/games/${gameId}/scores`, {
-      userId,  // Отправляем в теле запроса
+      userId,
       score,
       metadata: metadata || {}
     });
     
     console.log('✅ Результат сохранен:', response.data);
+    
+    // Если есть разблокированное достижение
+    if (response.data.unlocked_achievement && achievementCallback) {
+      console.log('🎉 Получено достижение, вызываем callback');
+      achievementCallback(response.data.unlocked_achievement);
+    }
+    
     return response.data;
   } catch (error: any) {
     console.error('❌ Ошибка сохранения:', error.response?.data || error.message);

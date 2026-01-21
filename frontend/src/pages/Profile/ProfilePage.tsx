@@ -31,9 +31,11 @@ import {
   MilitaryTech,
   Score,
   History,
+  ViewList,
 } from '@mui/icons-material';
 import { useAuth } from '../../contexts/AuthContext';
 import { apiService, User as ApiUser, GameScore, Achievement } from '../../services/api';
+import AchievementsModal from '../../components/Achievements/AchievementsModal';
 
 const ProfilePage: React.FC = () => {
   const { user: authUser, signInWithGoogle, loading: authLoading } = useAuth();
@@ -49,6 +51,7 @@ const ProfilePage: React.FC = () => {
     gamesPlayed: 0,
     achievementsCount: 0,
   });
+  const [achievementsModalOpen, setAchievementsModalOpen] = useState(false);
 
   const MAX_RETRIES = 5;
   const RETRY_DELAY = 1000 * Math.min(retryCount + 1, 3);
@@ -150,6 +153,10 @@ const ProfilePage: React.FC = () => {
     setRetryCount(0);
     loadUserData();
   };
+
+  // Расчет прогресса до следующего уровня
+  const xpForNextLevel = (user?.level || 1) * 1000;
+  const xpProgress = Math.min(((user?.xp || 0) / xpForNextLevel) * 100, 100);
 
   if (authLoading || (loading && !user)) {
     return (
@@ -287,10 +294,6 @@ const ProfilePage: React.FC = () => {
     );
   }
 
-  // Расчет прогресса до следующего уровня
-  const xpForNextLevel = (user?.level || 1) * 1000;
-  const xpProgress = Math.min(((user?.xp || 0) / xpForNextLevel) * 100, 100);
-
   return (
     <Container maxWidth="lg">
       <Box sx={{ py: 4 }}>
@@ -401,9 +404,11 @@ const ProfilePage: React.FC = () => {
                 </Card>
 
                 {/* Статистика */}
-                <Typography variant="h6" gutterBottom sx={{ mb: 2, fontWeight: 600 }}>
-                  📈 Статистика
-                </Typography>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                  <Typography variant="h6" sx={{ fontWeight: 600 }}>
+                    📈 Статистика
+                  </Typography>
+                </Box>
                 
                 <Box sx={{ 
                   display: 'grid',
@@ -568,9 +573,19 @@ const ProfilePage: React.FC = () => {
                 </Card>
 
                 {/* Достижения */}
-                <Typography variant="h6" gutterBottom sx={{ mb: 2, fontWeight: 600 }}>
-                  🏆 Достижения
-                </Typography>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                  <Typography variant="h6" sx={{ fontWeight: 600 }}>
+                    🏆 Достижения
+                  </Typography>
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    startIcon={<ViewList />}
+                    onClick={() => setAchievementsModalOpen(true)}
+                  >
+                    Все достижения
+                  </Button>
+                </Box>
                 
                 {achievements.length > 0 ? (
                   <Card elevation={0} variant="outlined" sx={{ borderRadius: 2 }}>
@@ -622,7 +637,7 @@ const ProfilePage: React.FC = () => {
                     <Typography color="text.secondary" gutterBottom>
                       Достижений пока нет
                     </Typography>
-                    <Typography variant="body2" color="text.secondary">
+                    <Typography variant="body2" color="text-secondary">
                       Играйте и выполняйте задания, чтобы получить достижения
                     </Typography>
                   </Paper>
@@ -631,6 +646,12 @@ const ProfilePage: React.FC = () => {
             </Box>
           </Box>
         </Fade>
+
+        {/* Модальное окно достижений */}
+        <AchievementsModal
+          open={achievementsModalOpen}
+          onClose={() => setAchievementsModalOpen(false)}
+        />
       </Box>
     </Container>
   );

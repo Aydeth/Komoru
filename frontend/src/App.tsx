@@ -4,6 +4,10 @@ import { CssBaseline, ThemeProvider, createTheme } from '@mui/material';
 
 // Контексты
 import { AuthProvider } from './contexts/AuthContext';
+import { AchievementProvider } from './contexts/AchievementContext';
+
+// Компоненты
+import AchievementManager from './components/Achievements/AchievementManager';
 
 // Страницы
 import HomePage from './pages/Home/HomePage';
@@ -42,16 +46,20 @@ function App() {
     <ThemeProvider theme={theme}>
       <CssBaseline />
       <AuthProvider>
-        <Router>
-          <Layout>
-            <Routes>
-              <Route path="/" element={<HomePage />} />
-              <Route path="/game/:id" element={<GamePage />} />
-              <Route path="/profile" element={<ProfilePage />} />
-              <Route path="/user/:userId" element={<UserProfilePage />} />
-            </Routes>
-          </Layout>
-        </Router>
+        <AchievementProvider>
+          <AchievementManager>
+            <Router>
+              <Layout>
+                <Routes>
+                  <Route path="/" element={<HomePage />} />
+                  <Route path="/game/:id" element={<GamePage />} />
+                  <Route path="/profile" element={<ProfilePage />} />
+                  <Route path="/user/:userId" element={<UserProfilePage />} />
+                </Routes>
+              </Layout>
+            </Router>
+          </AchievementManager>
+        </AchievementProvider>
       </AuthProvider>
     </ThemeProvider>
   );

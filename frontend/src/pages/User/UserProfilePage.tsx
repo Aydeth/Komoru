@@ -19,42 +19,19 @@ import EmojiEventsIcon from '@mui/icons-material/EmojiEvents';
 import MilitaryTechIcon from '@mui/icons-material/MilitaryTech';
 import ScoreIcon from '@mui/icons-material/Score';
 import GamesIcon from '@mui/icons-material/Games';
-import { apiService } from '../../services/api';
-
-interface UserProfile {
-  id: string;
-  username: string;
-  avatar: string;
-  level: number;
-  xp: number;
-}
-
-interface UserStats {
-  total_achievements: number;
-  games_played: number;
-  total_score: number;
-  achievement_types: number;
-}
-
-interface Achievement {
-  id: number;
-  title: string;
-  description: string;
-  xp_reward: number;
-  icon: string;
-  game_title?: string;
-  unlocked_at: string;
-}
+import ViewListIcon from '@mui/icons-material/ViewList';
+import AchievementsModal from '../../components/Achievements/AchievementsModal';
 
 const UserProfilePage: React.FC = () => {
   const { userId } = useParams<{ userId: string }>();
   const navigate = useNavigate();
   
-  const [user, setUser] = useState<UserProfile | null>(null);
-  const [stats, setStats] = useState<UserStats | null>(null);
-  const [achievements, setAchievements] = useState<Achievement[]>([]);
+  const [user, setUser] = useState<any>(null);
+  const [stats, setStats] = useState<any>(null);
+  const [achievements, setAchievements] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [achievementsModalOpen, setAchievementsModalOpen] = useState(false);
 
   useEffect(() => {
     if (userId) {
@@ -67,11 +44,29 @@ const UserProfilePage: React.FC = () => {
       setLoading(true);
       setError(null);
       
-      // TODO: Здесь будет вызов нового API /api/users/{userId}/achievements
-      // Пока используем заглушку
-      console.log(`Загрузка профиля пользователя ${id}`);
+      // Используем реальный API endpoint
+      const response = await fetch(
+        `https://komoru-api.onrender.com/api/users/${id}/achievements`
+      );
       
-      // Временная заглушка
+      if (response.ok) {
+        const data = await response.json();
+        
+        if (data.success) {
+          setUser(data.data.user);
+          setStats(data.data.stats);
+          setAchievements(data.data.achievements.recent || []);
+        } else {
+          throw new Error(data.error || 'Пользователь не найден');
+        }
+      } else {
+        throw new Error(`Ошибка HTTP: ${response.status}`);
+      }
+      
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Не удалось загрузить профиль');
+      
+      // Fallback: показываем заглушку если API не готов
       setTimeout(() => {
         setUser({
           id: id,
@@ -91,8 +86,7 @@ const UserProfilePage: React.FC = () => {
         setLoading(false);
       }, 500);
       
-    } catch (err) {
-      setError('Не удалось загрузить профиль пользователя');
+    } finally {
       setLoading(false);
     }
   };
@@ -171,6 +165,13 @@ const UserProfilePage: React.FC = () => {
                     fontWeight: 600 
                   }}
                 />
+                <Chip
+                  icon={<GamesIcon />}
+                  label={`${stats?.games_played || 0} игр`}
+                  color="success"
+                  variant="outlined"
+                  sx={{ fontWeight: 600 }}
+                />
               </Box>
             </Box>
           </Box>
@@ -195,7 +196,7 @@ const UserProfilePage: React.FC = () => {
           <Paper elevation={0} variant="outlined" sx={{ p: 2, textAlign: 'center', borderRadius: 2, height: '100%' }}>
             <ScoreIcon color="primary" sx={{ fontSize: 40, mb: 1 }} />
             <Typography variant="h4" color="primary" sx={{ fontWeight: 700 }}>
-              {stats?.total_score.toLocaleString() || 0}
+              {stats?.total_score?.toLocaleString() || 0}
             </Typography>
             <Typography variant="caption" color="text.secondary">
               Всего очков
@@ -237,9 +238,19 @@ const UserProfilePage: React.FC = () => {
         </Box>
 
         {/* Достижения */}
-        <Typography variant="h5" gutterBottom sx={{ mb: 3, fontWeight: 600 }}>
-          🏆 Последние достижения
-        </Typography>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+          <Typography variant="h5" sx={{ fontWeight: 600 }}>
+            🏆 Последние достижения
+          </Typography>
+          <Button
+            variant="outlined"
+            size="small"
+            startIcon={<ViewListIcon />}
+            onClick={() => setAchievementsModalOpen(true)}
+          >
+            Все достижения
+          </Button>
+        </Box>
         
         {achievements.length > 0 ? (
           <Box sx={{ 
@@ -297,6 +308,13 @@ const UserProfilePage: React.FC = () => {
         <Typography variant="body2" color="text.secondary" align="center">
           Профиль пользователя • ID: {user.id}
         </Typography>
+
+        {/* Модальное окно достижений */}
+        <AchievementsModal
+          open={achievementsModalOpen}
+          onClose={() => setAchievementsModalOpen(false)}
+          userId={userId}
+        />
       </Box>
     </Container>
   );
