@@ -164,7 +164,8 @@ app.get('/api/games/:id/leaderboard', async (req, res) => {
         gs.created_at,
         u.username,
         u.avatar_url,
-        u.level
+        u.level,
+        u.id as user_id  -- ДОБАВЛЯЕМ ЭТУ СТРОКУ
       FROM game_scores gs
       JOIN users u ON gs.user_id = u.id
       WHERE gs.game_id = $1

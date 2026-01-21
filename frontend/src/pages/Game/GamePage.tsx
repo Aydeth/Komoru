@@ -422,14 +422,20 @@ const GamePage: React.FC = () => {
                               </TableCell>
                               <TableCell>
                                 <Button
-                                  onClick={() => navigate(`/user/${userId}`)}
+                                  onClick={() => {
+                                    if (entry.user_id) {
+                                      navigate(`/user/${entry.user_id}`);
+                                    } else {
+                                      // Fallback на случай, если что-то пошло не так
+                                      navigate(`/user/unknown_${index}`);
+                                    }
+                                  }}
                                   sx={{
                                     textTransform: 'none',
                                     color: 'inherit',
                                     justifyContent: 'flex-start',
                                     padding: 0,
                                     minWidth: 0,
-                                    textAlign: 'left',
                                     '&:hover': {
                                       backgroundColor: 'transparent',
                                       opacity: 0.8
@@ -446,14 +452,14 @@ const GamePage: React.FC = () => {
                                         bgcolor: entry.avatar_url ? 'transparent' : 'primary.main'
                                       }}
                                     >
-                                      {displayName.charAt(0)}
+                                      {entry.username.charAt(0)}
                                     </Avatar>
                                     <Box>
                                       <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                                        {displayName}
+                                        {entry.username}
                                       </Typography>
                                       <Typography variant="caption" color="text.secondary">
-                                        Уровень {entry.level || 1}
+                                        Уровень {entry.level}
                                       </Typography>
                                     </Box>
                                   </Box>

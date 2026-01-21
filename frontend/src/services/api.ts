@@ -69,7 +69,7 @@ export interface LeaderboardEntry {
   username: string;
   avatar_url: string | null;
   level: number;
-  user_id?: string;
+  user_id: string;
 }
 
 export interface User {
