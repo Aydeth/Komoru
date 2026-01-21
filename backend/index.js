@@ -730,7 +730,7 @@ app.get('/api/users/:userId/achievements', async (req, res) => {
     const statsQuery = await db.query(`
       SELECT 
         COUNT(DISTINCT ua.achievement_id) as total_achievements,
-        COUNT(DISTINCT gs.game_id) as games_played,
+        COUNT(gs.id) as games_played,  // ЭТО ТЕПЕРЬ СЧИТАЕТ СЕССИИ!
         COALESCE(SUM(gs.score), 0) as total_score,
         u.level,
         u.total_xp

@@ -101,61 +101,62 @@ const UserProfilePage: React.FC = () => {
   const RETRY_DELAY = 1000 * Math.min(retryCount + 1, 3);
 
   const loadUserProfile = useCallback(async () => {
-    if (!userId) return;
+  if (!userId) return;
+  
+  try {
+    setLoading(true);
+    setError(null);
     
-    try {
-      setLoading(true);
-      setError(null);
+    console.log(`🔄 Загрузка профиля пользователя ${userId} (попытка ${retryCount + 1}/${MAX_RETRIES})...`);
+    
+    const response = await apiService.getUserAchievementsById(userId);
+    
+    if (response.success && response.data) {
+      const data = response.data;
       
-      console.log(`🔄 Загрузка профиля пользователя ${userId} (попытка ${retryCount + 1}/${MAX_RETRIES})...`);
+      // Теперь games_played - это реальное количество сессий!
+      const userProfile: UserProfile = {
+        user: {
+          id: data.user.id,
+          username: data.user.username || 'Игрок',
+          avatar: data.user.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${data.user.id}`,
+          level: data.user.level || 1,
+          xp: data.user.xp || 0,
+          currency: data.user.currency || 0,
+        },
+        stats: {
+          total_achievements: parseInt(data.stats.total_achievements) || 0,
+          games_played: parseInt(data.stats.games_played) || 0, // Теперь это сессии!
+          total_score: parseInt(data.stats.total_score) || 0,
+          achievement_types: data.stats.achievement_types || 0,
+          currency: data.user.currency || 0,
+        },
+        achievements: {
+          total: data.achievements.total || 0,
+          by_type: data.achievements.by_type || {},
+          recent: data.achievements.recent || [],
+        },
+      };
       
-      const response = await apiService.getUserAchievementsById(userId);
-      
-      if (response.success && response.data) {
-        const data = response.data;
-        
-        // Преобразуем строки в числа там где нужно
-        const userProfile: UserProfile = {
-          user: {
-            id: data.user.id,
-            username: data.user.username || 'Игрок',
-            avatar: data.user.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${data.user.id}`,
-            level: data.user.level || 1,
-            xp: data.user.xp || 0,
-            currency: data.user.currency || 0,
-          },
-          stats: {
-            total_achievements: parseInt(data.stats.total_achievements) || 0,
-            games_played: parseInt(data.stats.games_played) || 0,
-            total_score: parseInt(data.stats.total_score) || 0,
-            achievement_types: data.stats.achievement_types || 0,
-            currency: data.user.currency || 0,
-          },
-          achievements: {
-            total: data.achievements.total || 0,
-            by_type: data.achievements.by_type || {},
-            recent: data.achievements.recent || [],
-          },
-        };
-        
-        setProfile(userProfile);
-        setRetryCount(0);
-        console.log(`✅ Профиль пользователя ${userId} загружен`);
-      } else {
-        throw new Error(response.error || 'Не удалось загрузить профиль');
-      }
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Ошибка при загрузке профиля';
-      setError(errorMessage);
-      console.error(`❌ Ошибка загрузки профиля (попытка ${retryCount + 1}):`, err);
-      
-      if (retryCount < MAX_RETRIES - 1) {
-        console.log(`⏱️  Повтор через ${RETRY_DELAY}мс...`);
-      }
-    } finally {
-      setLoading(false);
+      setProfile(userProfile);
+      setRetryCount(0);
+      console.log(`✅ Профиль пользователя ${userId} загружен`);
+      console.log(`🎮 Игровых сессий: ${userProfile.stats.games_played}`);
+    } else {
+      throw new Error(response.error || 'Не удалось загрузить профиль');
     }
-  }, [userId, retryCount]);
+  } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : 'Ошибка при загрузке профиля';
+    setError(errorMessage);
+    console.error(`❌ Ошибка загрузки профиля (попытка ${retryCount + 1}):`, err);
+    
+    if (retryCount < MAX_RETRIES - 1) {
+      console.log(`⏱️  Повтор через ${RETRY_DELAY}мс...`);
+    }
+  } finally {
+    setLoading(false);
+  }
+}, [userId, retryCount]);
 
   // Автоматический повтор при ошибке
   useEffect(() => {
