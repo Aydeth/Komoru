@@ -19,6 +19,8 @@ import UserProfilePage from './pages/User/UserProfilePage';
 // Компоненты
 import Layout from './components/Layout/Layout';
 
+import SimpleTestPopup from './components/Debug/SimpleTestPopup';
+
 // Тема
 const theme = createTheme({
   palette: {
@@ -59,7 +61,10 @@ function App() {
                 </Routes>
               </Layout>
             </Router>
-            <DebugPanel /> {/* ДОБАВИТЬ */}
+            <>
+              <DebugPanel />
+              <SimpleTestPopup />
+            </>
           </AchievementManager>
         </AchievementProvider>
       </AuthProvider>
