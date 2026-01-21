@@ -4,8 +4,6 @@ import {
   Typography,
   Box,
   IconButton,
-  Slide,
-  Fade,
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import EmojiEventsIcon from '@mui/icons-material/EmojiEvents';
@@ -26,9 +24,8 @@ const AchievementPopup: React.FC<AchievementPopupProps> = ({
   onClose,
   duration = 5000
 }) => {
-  const [visible, setVisible] = useState(true);
-  const [slideIn, setSlideIn] = useState(true);
-  const [timeLeft, setTimeLeft] = useState(duration / 1000);
+  const [isVisible, setIsVisible] = useState(true);
+  const [timeLeft, setTimeLeft] = useState(Math.floor(duration / 1000));
 
   console.log('🎪 AchievementPopup рендерится с достижением:', achievement.title);
 
@@ -47,184 +44,175 @@ const AchievementPopup: React.FC<AchievementPopupProps> = ({
     return () => clearInterval(interval);
   }, []);
 
-  // Автоматическое скрытие через duration миллисекунд
+  // Автоматическое скрытие
   useEffect(() => {
     console.log(`⏱️ Таймер запущен: ${duration}мс`);
     
     const timer = setTimeout(() => {
       console.log('⏰ Таймер сработал, скрываем попап');
-      setSlideIn(false);
-      
-      // Ждём окончания анимации скрытия
-      setTimeout(() => {
-        setVisible(false);
-        onClose();
-      }, 300);
+      handleClose();
     }, duration);
 
     return () => {
       console.log('🧹 Очистка таймера');
       clearTimeout(timer);
     };
-  }, [duration, onClose]);
+  }, [duration]);
 
   // Ручное закрытие
   const handleClose = () => {
-    console.log('👆 Ручное закрытие попапа');
-    setSlideIn(false);
+    console.log('👆 Закрытие попапа');
+    setIsVisible(false);
     setTimeout(() => {
-      setVisible(false);
       onClose();
-    }, 300);
+    }, 300); // Даем время на анимацию исчезновения
   };
 
-  if (!visible) {
-    console.log('👻 Попап невидим, не рендерим');
+  if (!isVisible) {
+    console.log('👻 Попап невидим');
     return null;
   }
 
-  console.log('🎨 Рендерим попап');
-
   return (
-    <Fade in={visible}>
-      <Slide direction="down" in={slideIn} mountOnEnter unmountOnExit>
+    <Box
+      sx={{
+        position: 'fixed',
+        top: 20,
+        left: 0,
+        right: 0,
+        zIndex: 9999,
+        display: 'flex',
+        justifyContent: 'center',
+        pointerEvents: 'none',
+        animation: 'slideInDown 0.5s ease-out forwards',
+        '@keyframes slideInDown': {
+          from: {
+            transform: 'translateY(-100px)',
+            opacity: 0,
+          },
+          to: {
+            transform: 'translateY(0)',
+            opacity: 1,
+          }
+        }
+      }}
+    >
+      <Paper
+        elevation={4}
+        sx={{
+          maxWidth: 400,
+          width: '90%',
+          borderRadius: 2,
+          overflow: 'hidden',
+          bgcolor: 'background.paper',
+          border: '2px solid',
+          borderColor: 'primary.main',
+          pointerEvents: 'auto',
+          opacity: isVisible ? 1 : 0,
+          transform: isVisible ? 'translateY(0)' : 'translateY(-100px)',
+          transition: 'opacity 0.3s ease, transform 0.3s ease',
+        }}
+      >
+        {/* Заголовок */}
         <Box
           sx={{
-            position: 'fixed',
-            top: 20,
-            left: 0,
-            right: 0,
-            zIndex: 9999,
+            bgcolor: 'primary.main',
+            color: 'primary.contrastText',
+            py: 1,
+            px: 2,
             display: 'flex',
-            justifyContent: 'center',
-            pointerEvents: 'none'
+            alignItems: 'center',
+            justifyContent: 'space-between'
           }}
         >
-          <Paper
-            elevation={4}
-            sx={{
-              maxWidth: 400,
-              width: '90%',
-              borderRadius: 2,
-              overflow: 'hidden',
-              bgcolor: 'background.paper',
-              border: '2px solid',
-              borderColor: 'primary.main',
-              pointerEvents: 'auto',
-              animation: 'bounceIn 0.5s',
-              '@keyframes bounceIn': {
-                '0%': { transform: 'scale(0.8)', opacity: 0 },
-                '50%': { transform: 'scale(1.05)' },
-                '100%': { transform: 'scale(1)', opacity: 1 }
-              }
-            }}
-          >
-            {/* Заголовок */}
-            <Box
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <EmojiEventsIcon fontSize="small" />
+            <Typography variant="subtitle2" fontWeight={600}>
+              Получено достижение!
+            </Typography>
+          </Box>
+          
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Typography variant="caption" sx={{ opacity: 0.8 }}>
+              {timeLeft}с
+            </Typography>
+            <IconButton
+              size="small"
+              onClick={handleClose}
               sx={{
-                bgcolor: 'primary.main',
                 color: 'primary.contrastText',
-                py: 1,
-                px: 2,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between'
+                '&:hover': { bgcolor: 'rgba(255,255,255,0.1)' }
               }}
             >
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <EmojiEventsIcon fontSize="small" />
-                <Typography variant="subtitle2" fontWeight={600}>
-                  Получено достижение!
-                </Typography>
-              </Box>
+              <CloseIcon fontSize="small" />
+            </IconButton>
+          </Box>
+        </Box>
+
+        {/* Содержимое */}
+        <Box sx={{ p: 2 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 1 }}>
+            <Typography variant="h3" sx={{ fontSize: '2.5rem' }}>
+              {achievement.icon}
+            </Typography>
+            
+            <Box sx={{ flex: 1 }}>
+              <Typography variant="h6" component="div" fontWeight={600}>
+                {achievement.title}
+              </Typography>
               
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <Typography variant="caption" sx={{ opacity: 0.8 }}>
-                  {timeLeft}с
+              {achievement.description && (
+                <Typography variant="body2" color="text.secondary">
+                  {achievement.description}
                 </Typography>
-                <IconButton
-                  size="small"
-                  onClick={handleClose}
-                  sx={{
-                    color: 'primary.contrastText',
-                    '&:hover': { bgcolor: 'rgba(255,255,255,0.1)' }
-                  }}
-                >
-                  <CloseIcon fontSize="small" />
-                </IconButton>
-              </Box>
+              )}
             </Box>
-
-            {/* Содержимое */}
-            <Box sx={{ p: 2 }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 1 }}>
-                <Typography variant="h3" sx={{ fontSize: '2.5rem' }}>
-                  {achievement.icon}
-                </Typography>
-                
-                <Box sx={{ flex: 1 }}>
-                  <Typography variant="h6" component="div" fontWeight={600}>
-                    {achievement.title}
-                  </Typography>
-                  
-                  {achievement.description && (
-                    <Typography variant="body2" color="text.secondary">
-                      {achievement.description}
-                    </Typography>
-                  )}
-                </Box>
-                
-                <Box
-                  sx={{
-                    bgcolor: 'success.50',
-                    color: 'success.700',
-                    py: 0.5,
-                    px: 1.5,
-                    borderRadius: 1,
-                    border: '1px solid',
-                    borderColor: 'success.200',
-                    minWidth: 70,
-                    textAlign: 'center'
-                  }}
-                >
-                  <Typography variant="subtitle2" fontWeight={700}>
-                    +{achievement.xp_reward} XP
-                  </Typography>
-                </Box>
-              </Box>
-
-              {/* Прогрессбар */}
-              <Box
-                sx={{
-                  height: 4,
-                  bgcolor: 'primary.100',
-                  borderRadius: 2,
-                  overflow: 'hidden',
-                  mt: 1
-                }}
-              >
-                <Box
-                  sx={{
-                    height: '100%',
-                    bgcolor: 'primary.main',
-                    width: '100%',
-                    animation: `progress ${duration}ms linear forwards`,
-                    '@keyframes progress': {
-                      '0%': { width: '100%' },
-                      '100%': { width: '0%' }
-                    }
-                  }}
-                />
-              </Box>
-
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1, textAlign: 'center' }}>
-                Нажмите ✕ чтобы закрыть или подождите {timeLeft} секунд
+            
+            <Box
+              sx={{
+                bgcolor: 'success.50',
+                color: 'success.700',
+                py: 0.5,
+                px: 1.5,
+                borderRadius: 1,
+                border: '1px solid',
+                borderColor: 'success.200',
+                minWidth: 70,
+                textAlign: 'center'
+              }}
+            >
+              <Typography variant="subtitle2" fontWeight={700}>
+                +{achievement.xp_reward} XP
               </Typography>
             </Box>
-          </Paper>
+          </Box>
+
+          {/* Прогрессбар */}
+          <Box
+            sx={{
+              height: 4,
+              bgcolor: 'primary.100',
+              borderRadius: 2,
+              overflow: 'hidden',
+              mt: 1
+            }}
+          >
+            <Box
+              sx={{
+                height: '100%',
+                bgcolor: 'primary.main',
+                width: `${(timeLeft * 1000 / duration) * 100}%`,
+                transition: 'width 1s linear'
+              }}
+            />
+          </Box>
+
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1, textAlign: 'center' }}>
+            Нажмите ✕ чтобы закрыть или подождите {timeLeft} секунд
+          </Typography>
         </Box>
-      </Slide>
-    </Fade>
+      </Paper>
+    </Box>
   );
 };
 

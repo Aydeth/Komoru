@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, ReactNode, useCallback } from 'react';
+import React, { createContext, useContext, useState, ReactNode, useCallback, useRef } from 'react';
 import AchievementPopup from '../components/Achievements/AchievementPopup';
 
 interface Achievement {
@@ -33,22 +33,23 @@ interface AchievementProviderProps {
 export const AchievementProvider: React.FC<AchievementProviderProps> = ({ children }) => {
   const [achievements, setAchievements] = useState<Achievement[]>([]);
   const [currentAchievement, setCurrentAchievement] = useState<Achievement | null>(null);
-  const [isShowing, setIsShowing] = useState(false);
+  const isShowingRef = useRef(false);
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const showAchievement = useCallback((achievement: Achievement) => {
     console.log('🎯 showAchievement вызван с достижением:', achievement);
     
     // Если уже показываем достижение, добавляем в очередь
-    if (isShowing) {
+    if (isShowingRef.current) {
       console.log('📥 Добавляем в очередь:', achievement.title);
       setAchievements(prev => [...prev, achievement]);
     } else {
       // Иначе показываем сразу
       console.log('🎪 Показываем достижение:', achievement.title);
       setCurrentAchievement(achievement);
-      setIsShowing(true);
+      isShowingRef.current = true;
     }
-  }, [isShowing]);
+  }, []);
 
   const showNextAchievement = useCallback(() => {
     console.log('🔄 Показываем следующее достижение из очереди');
@@ -58,29 +59,51 @@ export const AchievementProvider: React.FC<AchievementProviderProps> = ({ childr
       console.log('📤 Берем из очереди:', next.title);
       setCurrentAchievement(next);
       setAchievements(rest);
-      setIsShowing(true);
+      isShowingRef.current = true;
     } else {
       console.log('📭 Очередь пуста, скрываем попап');
       setCurrentAchievement(null);
-      setIsShowing(false);
+      isShowingRef.current = false;
     }
   }, [achievements]);
 
   const handleClose = useCallback(() => {
-    console.log('❌ Закрытие попапа, показываем следующее');
-    setIsShowing(false);
+    console.log('❌ Закрытие попапа');
+    
+    // Очищаем предыдущий таймер
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+    }
+    
+    // Сбрасываем текущее достижение
+    setCurrentAchievement(null);
+    isShowingRef.current = false;
     
     // Показываем следующее достижение через задержку
-    setTimeout(() => {
+    timeoutRef.current = setTimeout(() => {
       showNextAchievement();
-    }, 500); // Задержка для плавного перехода
+    }, 500);
   }, [showNextAchievement]);
 
   const clearAchievements = useCallback(() => {
     console.log('🧹 Очистка всех достижений');
     setAchievements([]);
     setCurrentAchievement(null);
-    setIsShowing(false);
+    isShowingRef.current = false;
+    
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+  }, []);
+
+  // Очищаем таймер при размонтировании
+  React.useEffect(() => {
+    return () => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+    };
   }, []);
 
   const value = {
