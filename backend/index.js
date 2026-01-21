@@ -680,7 +680,7 @@ app.get('/api/users/current/achievements/latest', async (req, res) => {
 });
 
 // 13. Получить достижения конкретного пользователя (публичный доступ)
-// Получить достижения конкретного пользователя (публичный доступ)
+// Получить достижения конкретного пользователя (публичный доступ) - ИСПРАВЛЕННАЯ ВЕРСИЯ
 app.get('/api/users/:userId/achievements', async (req, res) => {
   let client;
   try {
@@ -706,15 +706,23 @@ app.get('/api/users/:userId/achievements', async (req, res) => {
     
     const user = userCheck.rows[0];
     
-    // 2. Получаем КОЛИЧЕСТВО ИГРОВЫХ СЕССИЙ (важно!)
+    // 2. ВАЖНО: Получаем количество сессий - СЧИТАЕМ ВСЕ ЗАПИСИ В game_scores
     const sessionsQuery = await client.query(
-      'SELECT COUNT(*) as sessions_count FROM game_scores WHERE user_id = $1',
+      'SELECT COUNT(id) as sessions_count FROM game_scores WHERE user_id = $1',
       [userId]
     );
     const sessionsCount = parseInt(sessionsQuery.rows[0].sessions_count) || 0;
-    console.log(`🎮 Количество сессий для пользователя ${userId}: ${sessionsCount}`);
+    console.log(`🎮 Количество сессий для ${userId}: ${sessionsCount} (запрос: COUNT(id))`);
     
-    // 3. Получаем достижения пользователя
+    // 3. Для сравнения - сколько уникальных игр
+    const uniqueGamesQuery = await client.query(
+      'SELECT COUNT(DISTINCT game_id) as unique_games FROM game_scores WHERE user_id = $1',
+      [userId]
+    );
+    const uniqueGames = parseInt(uniqueGamesQuery.rows[0].unique_games) || 0;
+    console.log(`🎮 Уникальных игр для ${userId}: ${uniqueGames}`);
+    
+    // 4. Получаем достижения пользователя
     const achievementsQuery = `
       SELECT 
         a.*,
@@ -738,21 +746,21 @@ app.get('/api/users/:userId/achievements', async (req, res) => {
       queryParams
     );
     
-    // 4. Получаем ОБЩИЙ СЧЕТ пользователя
+    // 5. Получаем общий счет - SUM всех score
     const totalScoreQuery = await client.query(
-      'SELECT COALESCE(SUM(score), 0) as total_score FROM game_scores WHERE user_id = $1',
+      'SELECT SUM(score) as total_score FROM game_scores WHERE user_id = $1',
       [userId]
     );
     const totalScore = parseInt(totalScoreQuery.rows[0].total_score) || 0;
     
-    // 5. Получаем количество достижений
+    // 6. Получаем количество достижений
     const achievementsCountQuery = await client.query(
       'SELECT COUNT(*) as achievements_count FROM user_achievements WHERE user_id = $1',
       [userId]
     );
     const achievementsCount = parseInt(achievementsCountQuery.rows[0].achievements_count) || 0;
     
-    // 6. Группируем достижения по типам
+    // 7. Группируем достижения по типам
     const achievementsByType = {};
     achievementsResult.rows.forEach(achievement => {
       const type = achievement.achievement_type || 'game';
@@ -762,7 +770,14 @@ app.get('/api/users/:userId/achievements', async (req, res) => {
       achievementsByType[type].push(achievement);
     });
     
-    // 7. Формируем ответ
+    // 8. Получаем кристаллы пользователя
+    const currencyQuery = await client.query(
+      'SELECT balance FROM user_currency WHERE user_id = $1',
+      [userId]
+    );
+    const currency = currencyQuery.rows[0] ? parseInt(currencyQuery.rows[0].balance) : 0;
+    
+    // 9. Формируем ответ
     const response = {
       success: true,
       data: {
@@ -771,12 +786,13 @@ app.get('/api/users/:userId/achievements', async (req, res) => {
           username: user.username,
           avatar: user.avatar_url,
           level: user.level,
-          xp: user.total_xp
+          xp: user.total_xp,
+          currency: currency
         },
         stats: {
-          total_achievements: achievementsCount, // Из отдельного запроса
-          games_played: sessionsCount,           // Количество сессий
-          total_score: totalScore,               // Общий счет
+          total_achievements: achievementsCount,
+          games_played: sessionsCount,  // ВОТ ОНО! Количество сессий, а не уникальных игр
+          total_score: totalScore,
           achievement_types: Object.keys(achievementsByType).length
         },
         achievements: {
@@ -787,11 +803,12 @@ app.get('/api/users/:userId/achievements', async (req, res) => {
       }
     };
     
-    console.log(`📊 Статистика пользователя ${userId}:`, {
+    console.log(`📊 ФИНАЛЬНАЯ статистика для ${userId}:`, {
       sessions: sessionsCount,
+      unique_games: uniqueGames,
       achievements: achievementsCount,
       totalScore: totalScore,
-      achievementTypes: Object.keys(achievementsByType).length
+      currency: currency
     });
     
     res.json(response);
