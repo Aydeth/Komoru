@@ -578,34 +578,14 @@ const ProfilePage: React.FC = () => {
                   <Typography variant="h6" sx={{ fontWeight: 600 }}>
                     🏆 Достижения
                   </Typography>
-                  <Box sx={{ display: 'flex', gap: 1 }}>
-                    <Button
-                      variant="outlined"
-                      size="small"
-                      startIcon={<ViewList />}
-                      onClick={() => setAchievementsModalOpen(true)}
-                    >
-                      Все достижения
-                    </Button>
-                    <Button
-                      variant="contained"
-                      size="small"
-                      onClick={() => {
-                        // Тестовый вызов попапа
-                        const { showAchievement } = useAchievements();
-                        showAchievement({
-                          id: 999,
-                          title: 'Тестовое достижение',
-                          icon: '🎉',
-                          xp_reward: 100,
-                          description: 'Это тестовое достижение для проверки попапа'
-                        });
-                      }}
-                      sx={{ minWidth: 'auto' }}
-                    >
-                      🧪 Тест
-                    </Button>
-                  </Box>
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    startIcon={<ViewList />}
+                    onClick={() => setAchievementsModalOpen(true)}
+                  >
+                    Все достижения
+                  </Button>
                 </Box>
                 
                 {achievements.length > 0 ? (

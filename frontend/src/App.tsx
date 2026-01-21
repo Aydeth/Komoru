@@ -8,6 +8,7 @@ import { AchievementProvider } from './contexts/AchievementContext';
 
 // Компоненты
 import AchievementManager from './components/Achievements/AchievementManager';
+import DebugPanel from './components/Debug/DebugPanel'; // ДОБАВИТЬ
 
 // Страницы
 import HomePage from './pages/Home/HomePage';
@@ -58,6 +59,7 @@ function App() {
                 </Routes>
               </Layout>
             </Router>
+            <DebugPanel /> {/* ДОБАВИТЬ */}
           </AchievementManager>
         </AchievementProvider>
       </AuthProvider>
