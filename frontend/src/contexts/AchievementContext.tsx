@@ -31,7 +31,7 @@ interface AchievementProviderProps {
 }
 
 export const AchievementProvider: React.FC<AchievementProviderProps> = ({ children }) => {
-  const [achievements, setAchievements] = useState<Achievement[]>([]);
+  const [achievementsQueue, setAchievementsQueue] = useState<Achievement[]>([]);
   const [currentAchievement, setCurrentAchievement] = useState<Achievement | null>(null);
   const isShowingRef = useRef(false);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -39,55 +39,65 @@ export const AchievementProvider: React.FC<AchievementProviderProps> = ({ childr
   const showAchievement = useCallback((achievement: Achievement) => {
     console.log('🎯 showAchievement вызван с достижением:', achievement);
     
-    // Если уже показываем достижение, добавляем в очередь
-    if (isShowingRef.current) {
-      console.log('📥 Добавляем в очередь:', achievement.title);
-      setAchievements(prev => [...prev, achievement]);
-    } else {
-      // Иначе показываем сразу
-      console.log('🎪 Показываем достижение:', achievement.title);
-      setCurrentAchievement(achievement);
-      isShowingRef.current = true;
+    // Всегда добавляем в очередь
+    setAchievementsQueue(prev => [...prev, achievement]);
+    
+    // Если ничего не показывается - начинаем показ
+    if (!isShowingRef.current) {
+      processNextAchievement();
     }
   }, []);
 
-  const showNextAchievement = useCallback(() => {
-    console.log('🔄 Показываем следующее достижение из очереди');
+  const processNextAchievement = useCallback(() => {
+    console.log('🔄 Обработка следующего достижения');
     
-    if (achievements.length > 0) {
-      const [next, ...rest] = achievements;
-      console.log('📤 Берем из очереди:', next.title);
-      setCurrentAchievement(next);
-      setAchievements(rest);
-      isShowingRef.current = true;
-    } else {
-      console.log('📭 Очередь пуста, скрываем попап');
-      setCurrentAchievement(null);
+    if (achievementsQueue.length === 0) {
+      console.log('📭 Очередь пуста');
       isShowingRef.current = false;
+      setCurrentAchievement(null);
+      return;
     }
-  }, [achievements]);
-
-  const handleClose = useCallback(() => {
-    console.log('❌ Закрытие попапа');
     
-    // Очищаем предыдущий таймер
+    // Берем первое достижение из очереди
+    const [nextAchievement, ...rest] = achievementsQueue;
+    console.log('📤 Показываем:', nextAchievement.title);
+    
+    setCurrentAchievement(nextAchievement);
+    setAchievementsQueue(rest);
+    isShowingRef.current = true;
+    
+    // Автоматическое закрытие через 5 секунд
     if (timeoutRef.current) {
       clearTimeout(timeoutRef.current);
     }
     
+    timeoutRef.current = setTimeout(() => {
+      console.log('⏰ Автоматическое закрытие:', nextAchievement.title);
+      handleClose();
+    }, 5000);
+  }, [achievementsQueue]);
+
+  const handleClose = useCallback(() => {
+    console.log('❌ Закрытие текущего попапа');
+    
+    // Очищаем таймер
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+    
     // Сбрасываем текущее достижение
     setCurrentAchievement(null);
-    isShowingRef.current = false;
     
-    // Показываем следующее достижение через задержку
-    timeoutRef.current = setTimeout(() => {
-      showNextAchievement();
-    }, 500);
-  }, [showNextAchievement]);
+    // Показываем следующее через небольшую паузу
+    setTimeout(() => {
+      processNextAchievement();
+    }, 300);
+  }, [processNextAchievement]);
 
   const clearAchievements = useCallback(() => {
     console.log('🧹 Очистка всех достижений');
-    setAchievements([]);
+    setAchievementsQueue([]);
     setCurrentAchievement(null);
     isShowingRef.current = false;
     
@@ -120,8 +130,24 @@ export const AchievementProvider: React.FC<AchievementProviderProps> = ({ childr
         <AchievementPopup
           achievement={currentAchievement}
           onClose={handleClose}
-          duration={5000}
         />
+      )}
+      
+      {/* Показываем количество в очереди (опционально) */}
+      {achievementsQueue.length > 0 && (
+        <div style={{
+          position: 'fixed',
+          top: 80,
+          right: 20,
+          background: 'rgba(0,0,0,0.7)',
+          color: 'white',
+          padding: '4px 8px',
+          borderRadius: '12px',
+          fontSize: '12px',
+          zIndex: 9998,
+        }}>
+          В очереди: {achievementsQueue.length}
+        </div>
       )}
     </AchievementContext.Provider>
   );

@@ -16,57 +16,33 @@ interface AchievementPopupProps {
     description?: string;
   };
   onClose: () => void;
-  duration?: number;
 }
 
 const AchievementPopup: React.FC<AchievementPopupProps> = ({
   achievement,
-  onClose,
-  duration = 5000
+  onClose
 }) => {
   const [isVisible, setIsVisible] = useState(true);
-  const [timeLeft, setTimeLeft] = useState(Math.floor(duration / 1000));
+  const [isClosing, setIsClosing] = useState(false);
 
   console.log('🎪 AchievementPopup рендерится с достижением:', achievement.title);
 
-  // Таймер обратного отсчета
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setTimeLeft(prev => {
-        if (prev <= 1) {
-          clearInterval(interval);
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, []);
-
-  // Автоматическое скрытие
-  useEffect(() => {
-    console.log(`⏱️ Таймер запущен: ${duration}мс`);
-    
-    const timer = setTimeout(() => {
-      console.log('⏰ Таймер сработал, скрываем попап');
-      handleClose();
-    }, duration);
-
-    return () => {
-      console.log('🧹 Очистка таймера');
-      clearTimeout(timer);
-    };
-  }, [duration]);
-
   // Ручное закрытие
   const handleClose = () => {
-    console.log('👆 Закрытие попапа');
-    setIsVisible(false);
+    console.log('👆 Ручное закрытие попапа');
+    setIsClosing(true);
+    
+    // Анимация исчезновения
     setTimeout(() => {
+      setIsVisible(false);
       onClose();
-    }, 300); // Даем время на анимацию исчезновения
+    }, 300);
   };
+
+  // Автоматическое закрытие через 5 секунд (управляется из контекста)
+  useEffect(() => {
+    console.log('⏱️ Попап появился, автоматическое закрытие через 5 секунд');
+  }, []);
 
   if (!isVisible) {
     console.log('👻 Попап невидим');
@@ -84,7 +60,7 @@ const AchievementPopup: React.FC<AchievementPopupProps> = ({
         display: 'flex',
         justifyContent: 'center',
         pointerEvents: 'none',
-        animation: 'slideInDown 0.5s ease-out forwards',
+        animation: isClosing ? 'slideOutUp 0.3s ease-in forwards' : 'slideInDown 0.5s ease-out forwards',
         '@keyframes slideInDown': {
           from: {
             transform: 'translateY(-100px)',
@@ -93,6 +69,16 @@ const AchievementPopup: React.FC<AchievementPopupProps> = ({
           to: {
             transform: 'translateY(0)',
             opacity: 1,
+          }
+        },
+        '@keyframes slideOutUp': {
+          from: {
+            transform: 'translateY(0)',
+            opacity: 1,
+          },
+          to: {
+            transform: 'translateY(-100px)',
+            opacity: 0,
           }
         }
       }}
@@ -108,8 +94,8 @@ const AchievementPopup: React.FC<AchievementPopupProps> = ({
           border: '2px solid',
           borderColor: 'primary.main',
           pointerEvents: 'auto',
-          opacity: isVisible ? 1 : 0,
-          transform: isVisible ? 'translateY(0)' : 'translateY(-100px)',
+          opacity: isClosing ? 0 : 1,
+          transform: isClosing ? 'translateY(-100px)' : 'translateY(0)',
           transition: 'opacity 0.3s ease, transform 0.3s ease',
         }}
       >
@@ -132,21 +118,16 @@ const AchievementPopup: React.FC<AchievementPopupProps> = ({
             </Typography>
           </Box>
           
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Typography variant="caption" sx={{ opacity: 0.8 }}>
-              {timeLeft}с
-            </Typography>
-            <IconButton
-              size="small"
-              onClick={handleClose}
-              sx={{
-                color: 'primary.contrastText',
-                '&:hover': { bgcolor: 'rgba(255,255,255,0.1)' }
-              }}
-            >
-              <CloseIcon fontSize="small" />
-            </IconButton>
-          </Box>
+          <IconButton
+            size="small"
+            onClick={handleClose}
+            sx={{
+              color: 'primary.contrastText',
+              '&:hover': { bgcolor: 'rgba(255,255,255,0.1)' }
+            }}
+          >
+            <CloseIcon fontSize="small" />
+          </IconButton>
         </Box>
 
         {/* Содержимое */}
@@ -187,28 +168,8 @@ const AchievementPopup: React.FC<AchievementPopupProps> = ({
             </Box>
           </Box>
 
-          {/* Прогрессбар */}
-          <Box
-            sx={{
-              height: 4,
-              bgcolor: 'primary.100',
-              borderRadius: 2,
-              overflow: 'hidden',
-              mt: 1
-            }}
-          >
-            <Box
-              sx={{
-                height: '100%',
-                bgcolor: 'primary.main',
-                width: `${(timeLeft * 1000 / duration) * 100}%`,
-                transition: 'width 1s linear'
-              }}
-            />
-          </Box>
-
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1, textAlign: 'center' }}>
-            Нажмите ✕ чтобы закрыть или подождите {timeLeft} секунд
+            Нажмите ✕ чтобы закрыть
           </Typography>
         </Box>
       </Paper>

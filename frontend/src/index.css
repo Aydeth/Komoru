@@ -1,21 +1,7 @@
-body {
-  margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
-
-code {
-  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
-    monospace;
-}
-
-/* Анимации для достижений */
+/* Анимации для попапов */
 @keyframes slideInDown {
   from {
-    transform: translateY(-100%);
+    transform: translateY(-100px);
     opacity: 0;
   }
   to {
@@ -30,32 +16,42 @@ code {
     opacity: 1;
   }
   to {
-    transform: translateY(-100%);
+    transform: translateY(-100px);
     opacity: 0;
   }
 }
 
-.achievement-enter {
-  animation: slideInDown 0.5s ease-out forwards;
-}
-
-.achievement-exit {
-  animation: slideOutUp 0.5s ease-in forwards;
-}
-
-/* Более заметная анимация */
 @keyframes pulse {
   0% {
-    box-shadow: 0 0 0 0 rgba(46, 125, 50, 0.4);
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(46, 125, 50, 0.7);
   }
-  70% {
+  50% {
+    transform: scale(1.05);
     box-shadow: 0 0 0 10px rgba(46, 125, 50, 0);
   }
   100% {
+    transform: scale(1);
     box-shadow: 0 0 0 0 rgba(46, 125, 50, 0);
   }
 }
 
-.achievement-pulse {
-  animation: pulse 2s infinite;
+.achievement-popup {
+  animation: slideInDown 0.5s ease-out, pulse 2s ease-in-out infinite;
+}
+
+/* Индикатор очереди */
+.queue-indicator {
+  animation: fadeIn 0.3s ease-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
