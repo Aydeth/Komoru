@@ -827,6 +827,51 @@ app.get('/api/users/:userId/achievements', async (req, res) => {
   }
 });
 
+// Endpoint для отладки статистики
+app.get('/api/debug/user-stats/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    
+    console.log(`🔍 Отладка статистики пользователя ${userId}`);
+    
+    // 1. Сколько всего записей в game_scores
+    const totalSessions = await db.query(
+      'SELECT COUNT(*) as count FROM game_scores WHERE user_id = $1',
+      [userId]
+    );
+    
+    // 2. Сколько уникальных игр
+    const uniqueGames = await db.query(
+      'SELECT COUNT(DISTINCT game_id) as count FROM game_scores WHERE user_id = $1',
+      [userId]
+    );
+    
+    // 3. Все записи
+    const allSessions = await db.query(
+      'SELECT game_id, score, created_at FROM game_scores WHERE user_id = $1 ORDER BY created_at DESC',
+      [userId]
+    );
+    
+    res.json({
+      success: true,
+      data: {
+        user_id: userId,
+        total_sessions: parseInt(totalSessions.rows[0].count),
+        unique_games: parseInt(uniqueGames.rows[0].count),
+        sessions: allSessions.rows,
+        query_used: 'COUNT(*) FROM game_scores'
+      }
+    });
+    
+  } catch (error) {
+    console.error('Debug error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
 // 15. Получить список всех достижений (упрощенная версия)
 app.get('/api/achievements', async (req, res) => {
   try {
