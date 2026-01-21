@@ -66,6 +66,7 @@ const GamePage: React.FC = () => {
         
         setRetryCount(0); // Сбрасываем счетчик при успехе
         console.log(`✅ Данные игры ${gameId} загружены`);
+        console.log('📊 Данные лидерборда RAW:', leaderboardResponse);
       } else {
         throw new Error(gameResponse.error || 'Игра не найдена');
       }
