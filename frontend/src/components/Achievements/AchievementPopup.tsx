@@ -1,15 +1,18 @@
+// components/Achievements/AchievementPopup.tsx
 import React, { useState, useEffect } from 'react';
 import {
   Paper,
   Typography,
   Box,
   IconButton,
+  Slide,
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import EmojiEventsIcon from '@mui/icons-material/EmojiEvents';
 
 interface AchievementPopupProps {
   achievement: {
+    id: number;
     title: string;
     icon: string;
     xp_reward: number;
@@ -22,158 +25,131 @@ const AchievementPopup: React.FC<AchievementPopupProps> = ({
   achievement,
   onClose
 }) => {
-  const [isVisible, setIsVisible] = useState(true);
-  const [isClosing, setIsClosing] = useState(false);
+  const [visible, setVisible] = useState(true);
+  const [slideIn, setSlideIn] = useState(true);
 
-  console.log('🎪 AchievementPopup рендерится с достижением:', achievement.title);
+  console.log('🎪 AchievementPopup рендерится для:', achievement.title);
 
-  // Ручное закрытие
+  // Автоматическое закрытие через 5 секунд
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      console.log('⏰ Автоматическое закрытие попапа');
+      handleClose();
+    }, 5000);
+
+    return () => clearTimeout(timer);
+  }, []);
+
   const handleClose = () => {
-    console.log('👆 Ручное закрытие попапа');
-    setIsClosing(true);
+    console.log('👆 Закрытие попапа');
+    setSlideIn(false);
     
-    // Анимация исчезновения
+    // Ждем завершения анимации, затем вызываем onClose
     setTimeout(() => {
-      setIsVisible(false);
       onClose();
     }, 300);
   };
 
-  // Автоматическое закрытие через 5 секунд (управляется из контекста)
-  useEffect(() => {
-    console.log('⏱️ Попап появился, автоматическое закрытие через 5 секунд');
-  }, []);
-
-  if (!isVisible) {
-    console.log('👻 Попап невидим');
-    return null;
-  }
-
   return (
-    <Box
-      sx={{
-        position: 'fixed',
-        top: 20,
-        left: 0,
-        right: 0,
-        zIndex: 9999,
-        display: 'flex',
-        justifyContent: 'center',
-        pointerEvents: 'none',
-        animation: isClosing ? 'slideOutUp 0.3s ease-in forwards' : 'slideInDown 0.5s ease-out forwards',
-        '@keyframes slideInDown': {
-          from: {
-            transform: 'translateY(-100px)',
-            opacity: 0,
-          },
-          to: {
-            transform: 'translateY(0)',
-            opacity: 1,
-          }
-        },
-        '@keyframes slideOutUp': {
-          from: {
-            transform: 'translateY(0)',
-            opacity: 1,
-          },
-          to: {
-            transform: 'translateY(-100px)',
-            opacity: 0,
-          }
-        }
-      }}
-    >
-      <Paper
-        elevation={4}
+    <Slide direction="down" in={slideIn} mountOnEnter unmountOnExit>
+      <Box
         sx={{
-          maxWidth: 400,
-          width: '90%',
-          borderRadius: 2,
-          overflow: 'hidden',
-          bgcolor: 'background.paper',
-          border: '2px solid',
-          borderColor: 'primary.main',
-          pointerEvents: 'auto',
-          opacity: isClosing ? 0 : 1,
-          transform: isClosing ? 'translateY(-100px)' : 'translateY(0)',
-          transition: 'opacity 0.3s ease, transform 0.3s ease',
+          position: 'fixed',
+          top: 20,
+          left: 0,
+          right: 0,
+          zIndex: 9999,
+          display: 'flex',
+          justifyContent: 'center',
+          pointerEvents: 'none'
         }}
       >
-        {/* Заголовок */}
-        <Box
+        <Paper
+          elevation={8}
           sx={{
-            bgcolor: 'primary.main',
-            color: 'primary.contrastText',
-            py: 1,
-            px: 2,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between'
+            maxWidth: 400,
+            width: '90%',
+            borderRadius: 2,
+            overflow: 'hidden',
+            bgcolor: 'background.paper',
+            border: '3px solid',
+            borderColor: 'primary.main',
+            pointerEvents: 'auto',
+            animation: 'slideInDown 0.5s ease-out',
           }}
         >
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <EmojiEventsIcon fontSize="small" />
-            <Typography variant="subtitle2" fontWeight={600}>
-              Получено достижение!
-            </Typography>
-          </Box>
-          
-          <IconButton
-            size="small"
-            onClick={handleClose}
+          {/* Заголовок */}
+          <Box
             sx={{
+              bgcolor: 'primary.main',
               color: 'primary.contrastText',
-              '&:hover': { bgcolor: 'rgba(255,255,255,0.1)' }
+              py: 1.5,
+              px: 2,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between'
             }}
           >
-            <CloseIcon fontSize="small" />
-          </IconButton>
-        </Box>
-
-        {/* Содержимое */}
-        <Box sx={{ p: 2 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 1 }}>
-            <Typography variant="h3" sx={{ fontSize: '2.5rem' }}>
-              {achievement.icon}
-            </Typography>
-            
-            <Box sx={{ flex: 1 }}>
-              <Typography variant="h6" component="div" fontWeight={600}>
-                {achievement.title}
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <EmojiEventsIcon fontSize="small" />
+              <Typography variant="subtitle1" fontWeight={600}>
+                Получено достижение!
               </Typography>
-              
-              {achievement.description && (
-                <Typography variant="body2" color="text.secondary">
-                  {achievement.description}
-                </Typography>
-              )}
             </Box>
             
-            <Box
+            <IconButton
+              size="small"
+              onClick={handleClose}
               sx={{
-                bgcolor: 'success.50',
-                color: 'success.700',
-                py: 0.5,
-                px: 1.5,
-                borderRadius: 1,
-                border: '1px solid',
-                borderColor: 'success.200',
-                minWidth: 70,
-                textAlign: 'center'
+                color: 'primary.contrastText',
+                '&:hover': { bgcolor: 'rgba(255,255,255,0.1)' }
               }}
             >
-              <Typography variant="subtitle2" fontWeight={700}>
-                +{achievement.xp_reward} XP
-              </Typography>
-            </Box>
+              <CloseIcon fontSize="small" />
+            </IconButton>
           </Box>
 
-          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1, textAlign: 'center' }}>
-            Нажмите ✕ чтобы закрыть
-          </Typography>
-        </Box>
-      </Paper>
-    </Box>
+          {/* Содержимое */}
+          <Box sx={{ p: 2.5 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2.5, mb: 1 }}>
+              <Typography variant="h2" sx={{ fontSize: '3rem', animation: 'pulse 2s infinite' }}>
+                {achievement.icon}
+              </Typography>
+              
+              <Box sx={{ flex: 1 }}>
+                <Typography variant="h5" component="div" fontWeight={700} gutterBottom>
+                  {achievement.title}
+                </Typography>
+                
+                {achievement.description && (
+                  <Typography variant="body1" color="text.secondary">
+                    {achievement.description}
+                  </Typography>
+                )}
+              </Box>
+              
+              <Box
+                sx={{
+                  bgcolor: 'success.50',
+                  color: 'success.700',
+                  py: 1,
+                  px: 2,
+                  borderRadius: 1.5,
+                  border: '2px solid',
+                  borderColor: 'success.200',
+                  minWidth: 80,
+                  textAlign: 'center'
+                }}
+              >
+                <Typography variant="h6" fontWeight={800}>
+                  +{achievement.xp_reward} XP
+                </Typography>
+              </Box>
+            </Box>
+          </Box>
+        </Paper>
+      </Box>
+    </Slide>
   );
 };
 

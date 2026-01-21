@@ -1,3 +1,4 @@
+// components/Achievements/AchievementManager.tsx
 import React, { useEffect } from 'react';
 import { useAchievements } from '../../contexts/AchievementContext';
 import { apiService } from '../../services/api';
@@ -10,15 +11,18 @@ const AchievementManager: React.FC<AchievementManagerProps> = ({ children }) => 
   const { showAchievement } = useAchievements();
 
   useEffect(() => {
-    // Устанавливаем callback в apiService
-    apiService.setShowAchievementCallback((achievement) => {
-      console.log('🎯 Callback достижения вызван из AchievementManager:', achievement);
+    console.log('🔗 AchievementManager: Регистрируем callback в apiService');
+    
+    // Регистрируем callback в apiService
+    const unregister = apiService.registerAchievementCallback((achievement) => {
+      console.log('🎯 Callback из apiService вызван, показываем достижение:', achievement);
       showAchievement(achievement);
     });
 
+    // Очистка при размонтировании
     return () => {
-      // Очищаем callback
-      apiService.setShowAchievementCallback(() => {});
+      console.log('🔗 AchievementManager: Удаляем callback');
+      unregister();
     };
   }, [showAchievement]);
 

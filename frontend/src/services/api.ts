@@ -196,8 +196,32 @@ class ApiService {
     }
   };
 
+  private achievementCallbacks: ((achievement: any) => void)[] = [];
+
+  // Метод для регистрации callback
+  registerAchievementCallback(callback: (achievement: any) => void): () => void {
+    this.achievementCallbacks.push(callback);
+    
+    // Возвращаем функцию для удаления callback
+    return () => {
+      this.achievementCallbacks = this.achievementCallbacks.filter(cb => cb !== callback);
+    };
+  }
+
+  // Вызываем все зарегистрированные callbacks
+  private triggerAchievementCallbacks(achievement: any) {
+    console.log('🎯 Вызываем callbacks для достижения:', achievement.title);
+    this.achievementCallbacks.forEach(callback => {
+      try {
+        callback(achievement);
+      } catch (error) {
+        console.error('Ошибка в callback достижения:', error);
+      }
+    });
+  }
+
   // Сохранить результат игры
-  saveGameScore = async (
+    saveGameScore = async (
     gameId: string,
     score: number,
     metadata?: Record<string, any>
@@ -221,12 +245,10 @@ class ApiService {
       
       console.log('✅ Результат сохранен:', response.data);
       
-      // Если есть разблокированное достижение и установлен callback
-      if (response.data.unlocked_achievement && this.showAchievementCallback) {
-        console.log('🎉 Получено достижение, вызываем callback');
-        this.showAchievementCallback(response.data.unlocked_achievement);
-      } else if (response.data.unlocked_achievement) {
-        console.log('🎉 Получено достижение, но callback не установлен:', response.data.unlocked_achievement);
+      // Если есть разблокированное достижение - вызываем callbacks
+      if (response.data.unlocked_achievement) {
+        console.log('🎉 Получено новое достижение, вызываем callbacks');
+        this.triggerAchievementCallbacks(response.data.unlocked_achievement);
       }
       
       return response.data;

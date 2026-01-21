@@ -1,3 +1,4 @@
+/* index.css */
 /* Анимации для попапов */
 @keyframes slideInDown {
   from {
@@ -10,48 +11,29 @@
   }
 }
 
-@keyframes slideOutUp {
-  from {
-    transform: translateY(0);
-    opacity: 1;
-  }
-  to {
-    transform: translateY(-100px);
-    opacity: 0;
-  }
-}
-
 @keyframes pulse {
   0% {
     transform: scale(1);
-    box-shadow: 0 0 0 0 rgba(46, 125, 50, 0.7);
   }
   50% {
-    transform: scale(1.05);
-    box-shadow: 0 0 0 10px rgba(46, 125, 50, 0);
+    transform: scale(1.1);
   }
   100% {
     transform: scale(1);
-    box-shadow: 0 0 0 0 rgba(46, 125, 50, 0);
   }
 }
 
-.achievement-popup {
-  animation: slideInDown 0.5s ease-out, pulse 2s ease-in-out infinite;
+/* Глобальные стили */
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-/* Индикатор очереди */
-.queue-indicator {
-  animation: fadeIn 0.3s ease-out;
-}
-
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(-10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+code {
+  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
+    monospace;
 }
