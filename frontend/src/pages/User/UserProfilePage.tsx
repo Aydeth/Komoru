@@ -32,8 +32,36 @@ import CalendarTodayIcon from '@mui/icons-material/CalendarToday';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import DiamondIcon from '@mui/icons-material/Diamond';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
+import MonetizationOnIcon from '@mui/icons-material/MonetizationOn';
 import { apiService } from '../../services/api';
 import AchievementsModal from '../../components/Achievements/AchievementsModal';
+
+// Функция для форматирования больших чисел
+const formatNumber = (num: number): string => {
+  if (num >= 1000000000) {
+    return (num / 1000000000).toFixed(1) + 'B';
+  }
+  if (num >= 1000000) {
+    return (num / 1000000).toFixed(1) + 'M';
+  }
+  if (num >= 1000) {
+    return (num / 1000).toFixed(1) + 'K';
+  }
+  return num.toString();
+};
+
+// Функция для преобразования типа достижения в читаемый вид
+const getAchievementTypeLabel = (type: string): string => {
+  const labels: Record<string, string> = {
+    'game': 'Игровые',
+    'one_time': 'Единоразовые',
+    'progressive': 'Прогрессивные',
+    'secret': 'Секретные',
+    'chain': 'Цепочка',
+    'collection': 'Коллекция',
+  };
+  return labels[type] || type;
+};
 
 interface UserProfile {
   user: {
@@ -42,12 +70,14 @@ interface UserProfile {
     avatar: string;
     level: number;
     xp: number;
+    currency?: number;
   };
   stats: {
     total_achievements: number;
     games_played: number;
     total_score: number;
     achievement_types: number;
+    currency?: number;
   };
   achievements: {
     total: number;
@@ -79,13 +109,12 @@ const UserProfilePage: React.FC = () => {
       
       console.log(`🔄 Загрузка профиля пользователя ${userId} (попытка ${retryCount + 1}/${MAX_RETRIES})...`);
       
-      // Используем существующий endpoint для получения данных пользователя
       const response = await apiService.getUserAchievementsById(userId);
       
       if (response.success && response.data) {
         const data = response.data;
         
-        // Преобразуем данные в нужный формат
+        // Преобразуем строки в числа там где нужно
         const userProfile: UserProfile = {
           user: {
             id: data.user.id,
@@ -93,12 +122,14 @@ const UserProfilePage: React.FC = () => {
             avatar: data.user.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${data.user.id}`,
             level: data.user.level || 1,
             xp: data.user.xp || 0,
+            currency: data.user.currency || 0,
           },
           stats: {
-            total_achievements: data.stats.total_achievements || 0,
-            games_played: data.stats.games_played || 0,
-            total_score: data.stats.total_score || 0,
+            total_achievements: parseInt(data.stats.total_achievements) || 0,
+            games_played: parseInt(data.stats.games_played) || 0,
+            total_score: parseInt(data.stats.total_score) || 0,
             achievement_types: data.stats.achievement_types || 0,
+            currency: data.user.currency || 0,
           },
           achievements: {
             total: data.achievements.total || 0,
@@ -250,6 +281,8 @@ const UserProfilePage: React.FC = () => {
     );
   }
 
+  const currency = profile.stats.currency || profile.user.currency || 0;
+
   return (
     <Container maxWidth="lg">
       <Box sx={{ py: 4 }}>
@@ -310,7 +343,7 @@ const UserProfilePage: React.FC = () => {
                       sx={{ fontWeight: 600 }}
                     />
                     <Chip
-                      icon={<MilitaryTechIcon />}
+                      icon={<EmojiEventsIcon />}
                       label={`${profile.stats.total_achievements} достижений`}
                       sx={{ 
                         bgcolor: 'warning.50', 
@@ -319,11 +352,13 @@ const UserProfilePage: React.FC = () => {
                       }}
                     />
                     <Chip
-                      icon={<GamesIcon />}
-                      label={`${profile.stats.games_played} игр`}
-                      color="success"
-                      variant="outlined"
-                      sx={{ fontWeight: 600 }}
+                      icon={<MonetizationOnIcon />}
+                      label={`${currency} 💎`}
+                      sx={{ 
+                        bgcolor: 'success.50', 
+                        color: 'success.700',
+                        fontWeight: 600 
+                      }}
                     />
                   </Box>
                 </Box>
@@ -373,15 +408,18 @@ const UserProfilePage: React.FC = () => {
                     <CardContent sx={{ textAlign: 'center', py: 3 }}>
                       <ScoreIcon color="primary" sx={{ fontSize: 48, mb: 2 }} />
                       <Typography variant="h3" color="primary" sx={{ fontWeight: 700, mb: 1 }}>
-                        {profile.stats.total_score.toLocaleString()}
+                        {formatNumber(profile.stats.total_score)}
                       </Typography>
                       <Typography variant="body2" color="text.secondary">
                         Всего очков
                       </Typography>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                        {profile.stats.total_score.toLocaleString()} точное значение
+                      </Typography>
                     </CardContent>
                   </Card>
                   
-                  {/* Игры */}
+                  {/* Игровые сессии */}
                   <Card elevation={0} variant="outlined" sx={{ borderRadius: 2, height: '100%' }}>
                     <CardContent sx={{ textAlign: 'center', py: 3 }}>
                       <GamesIcon color="secondary" sx={{ fontSize: 48, mb: 2 }} />
@@ -389,7 +427,7 @@ const UserProfilePage: React.FC = () => {
                         {profile.stats.games_played}
                       </Typography>
                       <Typography variant="body2" color="text.secondary">
-                        Игр сыграно
+                        Игровых сессий
                       </Typography>
                     </CardContent>
                   </Card>
@@ -407,15 +445,15 @@ const UserProfilePage: React.FC = () => {
                     </CardContent>
                   </Card>
                   
-                  {/* Типы */}
+                  {/* Кристаллы */}
                   <Card elevation={0} variant="outlined" sx={{ borderRadius: 2, height: '100%' }}>
                     <CardContent sx={{ textAlign: 'center', py: 3 }}>
-                      <MilitaryTechIcon color="warning" sx={{ fontSize: 48, mb: 2 }} />
+                      <MonetizationOnIcon color="warning" sx={{ fontSize: 48, mb: 2 }} />
                       <Typography variant="h3" color="warning.main" sx={{ fontWeight: 700, mb: 1 }}>
-                        {profile.stats.achievement_types}
+                        {currency}
                       </Typography>
                       <Typography variant="body2" color="text.secondary">
-                        Типов достижений
+                        Кристаллов 💎
                       </Typography>
                     </CardContent>
                   </Card>
@@ -475,47 +513,6 @@ const UserProfilePage: React.FC = () => {
                   </Button>
                 </Box>
 
-                {/* Общая статистика по достижениям */}
-                <Card elevation={0} variant="outlined" sx={{ mb: 4, borderRadius: 2 }}>
-                  <CardContent>
-                    <Typography variant="h6" gutterBottom sx={{ fontWeight: 600 }}>
-                      Статистика достижений
-                    </Typography>
-                    <Box sx={{ 
-                      display: 'flex', 
-                      flexWrap: 'wrap', 
-                      gap: 2,
-                      '& > *': {
-                        flex: '1 1 calc(33.333% - 16px)',
-                        minWidth: { xs: '100%', sm: 'calc(50% - 16px)', md: 'calc(33.333% - 16px)' }
-                      }
-                    }}>
-                      {Object.entries(profile.achievements.by_type).map(([type, achievements]) => (
-                        <Paper 
-                          key={type}
-                          elevation={0} 
-                          sx={{ 
-                            p: 2, 
-                            bgcolor: 'grey.50',
-                            borderRadius: 2,
-                            height: '100%'
-                          }}
-                        >
-                          <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>
-                            {getAchievementTypeLabel(type)}
-                          </Typography>
-                          <Typography variant="h4" color="primary" sx={{ fontWeight: 700 }}>
-                            {achievements.length}
-                          </Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            достижений
-                          </Typography>
-                        </Paper>
-                      ))}
-                    </Box>
-                  </CardContent>
-                </Card>
-
                 {/* Последние достижения */}
                 <Typography variant="h6" gutterBottom sx={{ mb: 3, fontWeight: 600 }}>
                   Последние полученные достижения
@@ -559,6 +556,11 @@ const UserProfilePage: React.FC = () => {
                               </Typography>
                             )}
                           </Box>
+                          {achievement.game_title && (
+                            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+                              Игра: {achievement.game_title}
+                            </Typography>
+                          )}
                         </CardContent>
                       </Card>
                     ))}
@@ -602,8 +604,11 @@ const UserProfilePage: React.FC = () => {
                           </ListItemIcon>
                           <ListItemText
                             primary="Всего очков"
-                            secondary={profile.stats.total_score.toLocaleString()}
+                            secondary={formatNumber(profile.stats.total_score)}
                           />
+                          <Typography variant="body2" color="text.secondary">
+                            {profile.stats.total_score.toLocaleString()}
+                          </Typography>
                         </ListItem>
                         <Divider />
                         <ListItem disableGutters sx={{ py: 1.5 }}>
@@ -611,7 +616,7 @@ const UserProfilePage: React.FC = () => {
                             <GamesIcon color="action" />
                           </ListItemIcon>
                           <ListItemText
-                            primary="Игр сыграно"
+                            primary="Игровых сессий"
                             secondary={profile.stats.games_played}
                           />
                         </ListItem>
@@ -621,12 +626,18 @@ const UserProfilePage: React.FC = () => {
                             <AccessTimeIcon color="action" />
                           </ListItemIcon>
                           <ListItemText
-                            primary="Средний счёт за игру"
+                            primary="Средний счёт за сессию"
                             secondary={profile.stats.games_played > 0 
-                              ? Math.round(profile.stats.total_score / profile.stats.games_played).toLocaleString()
+                              ? formatNumber(Math.round(profile.stats.total_score / profile.stats.games_played))
                               : '0'
                             }
                           />
+                          <Typography variant="body2" color="text.secondary">
+                            {profile.stats.games_played > 0 
+                              ? Math.round(profile.stats.total_score / profile.stats.games_played).toLocaleString()
+                              : '0'
+                            }
+                          </Typography>
                         </ListItem>
                       </List>
                     </CardContent>
@@ -654,11 +665,11 @@ const UserProfilePage: React.FC = () => {
                         <Divider />
                         <ListItem disableGutters sx={{ py: 1.5 }}>
                           <ListItemIcon sx={{ minWidth: 40 }}>
-                            <MilitaryTechIcon color="action" />
+                            <MonetizationOnIcon color="action" />
                           </ListItemIcon>
                           <ListItemText
-                            primary="Типов достижений"
-                            secondary={`${profile.stats.achievement_types} из 6`}
+                            primary="Кристаллы"
+                            secondary={`${currency} 💎`}
                           />
                         </ListItem>
                         <Divider />
@@ -695,20 +706,6 @@ const UserProfilePage: React.FC = () => {
       </Box>
     </Container>
   );
-};
-
-// Вспомогательная функция для преобразования типа достижения в читаемый вид
-const getAchievementTypeLabel = (type: string): string => {
-  const labels: Record<string, string> = {
-    'game': 'Игровые',
-    'one_time': 'Единоразовые',
-    'progressive': 'Прогрессивные',
-    'secret': 'Секретные',
-    'chain': 'Цепочка',
-    'collection': 'Коллекция',
-  };
-  
-  return labels[type] || type;
 };
 
 export default UserProfilePage;
