@@ -680,15 +680,19 @@ app.get('/api/users/current/achievements/latest', async (req, res) => {
 });
 
 // 13. Получить достижения конкретного пользователя (публичный доступ)
+// Получить достижения конкретного пользователя (публичный доступ)
 app.get('/api/users/:userId/achievements', async (req, res) => {
+  let client;
   try {
     const { userId } = req.params;
     const { limit } = req.query;
     
     console.log(`👤 Запрос достижений пользователя: ${userId}`);
     
-    // Проверяем существование пользователя
-    const userCheck = await db.query(
+    client = await db.pool.connect();
+    
+    // 1. Проверяем существование пользователя
+    const userCheck = await client.query(
       'SELECT id, username, avatar_url, level, total_xp FROM users WHERE id = $1',
       [userId]
     );
@@ -702,14 +706,15 @@ app.get('/api/users/:userId/achievements', async (req, res) => {
     
     const user = userCheck.rows[0];
     
-    // Получаем количество сессий (новый запрос)
-    const sessionsQuery = await db.query(
+    // 2. Получаем КОЛИЧЕСТВО ИГРОВЫХ СЕССИЙ (важно!)
+    const sessionsQuery = await client.query(
       'SELECT COUNT(*) as sessions_count FROM game_scores WHERE user_id = $1',
       [userId]
     );
     const sessionsCount = parseInt(sessionsQuery.rows[0].sessions_count) || 0;
+    console.log(`🎮 Количество сессий для пользователя ${userId}: ${sessionsCount}`);
     
-    // Получаем достижения пользователя
+    // 3. Получаем достижения пользователя
     const achievementsQuery = `
       SELECT 
         a.*,
@@ -725,36 +730,29 @@ app.get('/api/users/:userId/achievements', async (req, res) => {
       ${limit ? `LIMIT $3` : ''}
     `;
     
-    const queryParams = [userId, false]; // false = не владелец (скрываем секретные)
+    const queryParams = [userId, false];
     if (limit) queryParams.push(parseInt(limit));
     
-    const achievementsResult = await db.query(
+    const achievementsResult = await client.query(
       achievementsQuery,
       queryParams
     );
     
-    // Получаем статистику пользователя (старый запрос, но games_played больше не используем)
-    const statsQuery = await db.query(`
-      SELECT 
-        COUNT(DISTINCT ua.achievement_id) as total_achievements,
-        COALESCE(SUM(gs.score), 0) as total_score,
-        u.level,
-        u.total_xp
-      FROM users u
-      LEFT JOIN user_achievements ua ON u.id = ua.user_id
-      LEFT JOIN game_scores gs ON u.id = gs.user_id
-      WHERE u.id = $1
-      GROUP BY u.id, u.level, u.total_xp
-    `, [userId]);
+    // 4. Получаем ОБЩИЙ СЧЕТ пользователя
+    const totalScoreQuery = await client.query(
+      'SELECT COALESCE(SUM(score), 0) as total_score FROM game_scores WHERE user_id = $1',
+      [userId]
+    );
+    const totalScore = parseInt(totalScoreQuery.rows[0].total_score) || 0;
     
-    const stats = statsQuery.rows[0] || {
-      total_achievements: 0,
-      total_score: 0,
-      level: 1,
-      total_xp: 0
-    };
+    // 5. Получаем количество достижений
+    const achievementsCountQuery = await client.query(
+      'SELECT COUNT(*) as achievements_count FROM user_achievements WHERE user_id = $1',
+      [userId]
+    );
+    const achievementsCount = parseInt(achievementsCountQuery.rows[0].achievements_count) || 0;
     
-    // Группируем достижения по типам
+    // 6. Группируем достижения по типам
     const achievementsByType = {};
     achievementsResult.rows.forEach(achievement => {
       const type = achievement.achievement_type || 'game';
@@ -764,7 +762,8 @@ app.get('/api/users/:userId/achievements', async (req, res) => {
       achievementsByType[type].push(achievement);
     });
     
-    res.json({
+    // 7. Формируем ответ
+    const response = {
       success: true,
       data: {
         user: {
@@ -775,9 +774,9 @@ app.get('/api/users/:userId/achievements', async (req, res) => {
           xp: user.total_xp
         },
         stats: {
-          total_achievements: parseInt(stats.total_achievements) || 0,
-          games_played: sessionsCount,  // ИСПОЛЬЗУЕМ sessionsCount
-          total_score: parseInt(stats.total_score) || 0,
+          total_achievements: achievementsCount, // Из отдельного запроса
+          games_played: sessionsCount,           // Количество сессий
+          total_score: totalScore,               // Общий счет
           achievement_types: Object.keys(achievementsByType).length
         },
         achievements: {
@@ -786,7 +785,16 @@ app.get('/api/users/:userId/achievements', async (req, res) => {
           recent: achievementsResult.rows.slice(0, 5)
         }
       }
+    };
+    
+    console.log(`📊 Статистика пользователя ${userId}:`, {
+      sessions: sessionsCount,
+      achievements: achievementsCount,
+      totalScore: totalScore,
+      achievementTypes: Object.keys(achievementsByType).length
     });
+    
+    res.json(response);
     
   } catch (error) {
     console.error('❌ Ошибка при получении достижений пользователя:', error);
@@ -795,6 +803,10 @@ app.get('/api/users/:userId/achievements', async (req, res) => {
       success: false,
       error: 'Не удалось загрузить достижения пользователя'
     });
+  } finally {
+    if (client) {
+      client.release();
+    }
   }
 });
 
