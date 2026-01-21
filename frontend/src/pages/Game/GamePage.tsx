@@ -405,43 +405,72 @@ const GamePage: React.FC = () => {
                         </TableRow>
                       </TableHead>
                       <TableBody>
-                        {leaderboard.map((entry, index) => (
-                          <TableRow key={index} hover>
-                            <TableCell>
-                              <Typography variant="h6" color="text.secondary">
-                                {index + 1}
-                              </Typography>
-                            </TableCell>
-                            <TableCell>
-                              <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                                <Avatar
-                                  src={entry.avatar_url || undefined}
-                                  sx={{ width: 32, height: 32, mr: 1 }}
+                        {leaderboard.map((entry, index) => {
+                          const userId = entry.user_id || 
+                                        entry.username?.replace(/\s+/g, '_').toLowerCase() || 
+                                        `player_${index + 1}`;
+                          
+                          const displayName = entry.username || `Игрок ${index + 1}`;
+                          
+                          return (
+                            <TableRow key={index} hover>
+                              <TableCell>
+                                <Typography variant="h6" color="text.secondary">
+                                  {index + 1}
+                                </Typography>
+                              </TableCell>
+                              <TableCell>
+                                <Button
+                                  onClick={() => navigate(`/user/${userId}`)}
+                                  sx={{
+                                    textTransform: 'none',
+                                    color: 'inherit',
+                                    justifyContent: 'flex-start',
+                                    padding: 0,
+                                    minWidth: 0,
+                                    textAlign: 'left',
+                                    '&:hover': {
+                                      backgroundColor: 'transparent',
+                                      opacity: 0.8
+                                    }
+                                  }}
                                 >
-                                  {entry.username.charAt(0)}
-                                </Avatar>
-                                <Box>
-                                  <Typography variant="body2">
-                                    {entry.username}
-                                  </Typography>
-                                  <Typography variant="caption" color="text.secondary">
-                                    Уровень {entry.level}
-                                  </Typography>
-                                </Box>
-                              </Box>
-                            </TableCell>
-                            <TableCell align="right">
-                              <Typography variant="h6" color="primary">
-                                {entry.score.toLocaleString()}
-                              </Typography>
-                            </TableCell>
-                            <TableCell>
-                              <Typography variant="caption" color="text.secondary">
-                                {new Date(entry.created_at).toLocaleDateString()}
-                              </Typography>
-                            </TableCell>
-                          </TableRow>
-                        ))}
+                                  <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                                    <Avatar
+                                      src={entry.avatar_url || undefined}
+                                      sx={{ 
+                                        width: 32, 
+                                        height: 32, 
+                                        mr: 1,
+                                        bgcolor: entry.avatar_url ? 'transparent' : 'primary.main'
+                                      }}
+                                    >
+                                      {displayName.charAt(0)}
+                                    </Avatar>
+                                    <Box>
+                                      <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                                        {displayName}
+                                      </Typography>
+                                      <Typography variant="caption" color="text.secondary">
+                                        Уровень {entry.level || 1}
+                                      </Typography>
+                                    </Box>
+                                  </Box>
+                                </Button>
+                              </TableCell>
+                              <TableCell align="right">
+                                <Typography variant="h6" color="primary">
+                                  {entry.score.toLocaleString()}
+                                </Typography>
+                              </TableCell>
+                              <TableCell>
+                                <Typography variant="caption" color="text.secondary">
+                                  {new Date(entry.created_at).toLocaleDateString()}
+                                </Typography>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
                       </TableBody>
                     </Table>
                   </TableContainer>

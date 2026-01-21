@@ -69,6 +69,7 @@ export interface LeaderboardEntry {
   username: string;
   avatar_url: string | null;
   level: number;
+  user_id?: string;
 }
 
 export interface User {
@@ -192,6 +193,36 @@ class ApiService {
       return {
         success: false,
         error: 'Не удалось загрузить информацию о пользователе'
+      };
+    }
+  };
+
+  getUserById = async (userId: string): Promise<ApiResponse<any>> => {
+    try {
+      console.log(`👤 Загрузка данных пользователя ${userId}...`);
+      const response = await api.get(`/users/${userId}/achievements`);
+      console.log('📦 Данные пользователя получены:', response.data);
+      return response.data;
+    } catch (error: any) {
+      console.error('❌ Ошибка загрузки пользователя:', error);
+      return {
+        success: false,
+        error: error.response?.data?.error || 'Не удалось загрузить данные пользователя'
+      };
+    }
+  };
+
+  getUserAchievementsById = async (userId: string): Promise<ApiResponse<any>> => {
+    try {
+      console.log(`🏆 Загрузка достижений пользователя ${userId}...`);
+      const response = await api.get(`/users/${userId}/achievements`);
+      console.log('📦 Достижения пользователя получены:', response.data);
+      return response.data;
+    } catch (error: any) {
+      console.error('❌ Ошибка загрузки достижений:', error);
+      return {
+        success: false,
+        error: error.response?.data?.error || 'Не удалось загрузить достижения пользователя'
       };
     }
   };
