@@ -27,13 +27,14 @@ CREATE TABLE IF NOT EXISTS games (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- 3. Таблица рекордов (лидерборд)
+-- 3. Таблица рекордов (лидерборд) - ЛУЧШИЕ РЕЗУЛЬТАТЫ
 CREATE TABLE IF NOT EXISTS game_scores (
     id SERIAL PRIMARY KEY,
     user_id VARCHAR(100) REFERENCES users(id) ON DELETE CASCADE,
     game_id VARCHAR(50) REFERENCES games(id) ON DELETE CASCADE,
     score INTEGER NOT NULL,
     metadata JSONB DEFAULT '{}',
+    session_duration INTEGER, -- Длительность сессии в секундах
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(user_id, game_id) -- Один рекорд на игру для пользователя
 );
@@ -90,6 +91,17 @@ CREATE TABLE IF NOT EXISTS user_quest_progress (
     UNIQUE(user_id, quest_id)
 );
 
+-- 9. Таблица игровых сессий (ВСЕ сыгранные игры)
+CREATE TABLE IF NOT EXISTS game_sessions (
+    id SERIAL PRIMARY KEY,
+    user_id VARCHAR(100) REFERENCES users(id) ON DELETE CASCADE,
+    game_id VARCHAR(50) REFERENCES games(id) ON DELETE CASCADE,
+    score INTEGER NOT NULL,
+    metadata JSONB DEFAULT '{}',
+    session_duration INTEGER, -- Длительность сессии в секундах
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
 -- ============================================
 -- ИНДЕКСЫ ДЛЯ БЫСТРОГО ПОИСКА
 -- ============================================
@@ -104,6 +116,43 @@ CREATE INDEX IF NOT EXISTS idx_achievements_game_id ON achievements(game_id);
 
 -- Для поиска пользователей по email
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+
+-- Индексы для игровых сессий
+CREATE INDEX IF NOT EXISTS idx_game_sessions_user_id ON game_sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_game_sessions_created_at ON game_sessions(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_game_sessions_game_user ON game_sessions(game_id, user_id);
+
+-- ============================================
+-- ДОБАВЛЕНИЕ ДОПОЛНИТЕЛЬНЫХ ПОЛЕЙ К СУЩЕСТВУЮЩИМ ТАБЛИЦАМ
+-- ============================================
+
+-- Добавляем поля в таблицу achievements если их нет
+DO $$ 
+BEGIN
+    -- Добавляем поле для типа достижения если его нет
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'achievements' AND column_name = 'achievement_type') THEN
+        ALTER TABLE achievements ADD COLUMN achievement_type VARCHAR(50) DEFAULT 'game';
+    END IF;
+    
+    -- Добавляем поле для сортировки если его нет
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'achievements' AND column_name = 'sort_order') THEN
+        ALTER TABLE achievements ADD COLUMN sort_order INTEGER DEFAULT 0;
+    END IF;
+    
+    -- Добавляем поле для скрытых достижений если его нет
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'achievements' AND column_name = 'is_hidden') THEN
+        ALTER TABLE achievements ADD COLUMN is_hidden BOOLEAN DEFAULT FALSE;
+    END IF;
+    
+    -- Добавляем поле активности если его нет
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name = 'achievements' AND column_name = 'is_active') THEN
+        ALTER TABLE achievements ADD COLUMN is_active BOOLEAN DEFAULT TRUE;
+    END IF;
+END $$;
 
 -- ============================================
 -- ТЕСТОВЫЕ ДАННЫЕ (опционально)
@@ -134,29 +183,11 @@ INSERT INTO daily_quests (title, description, currency_reward, goal_type, goal_t
 ('Мастер дня', 'Попадите в топ-10 любой игры', 100, 'score_above', 1)
 ON CONFLICT DO NOTHING;
 
--- 1. Добавляем поля в таблицу achievements если их нет
-DO $$ 
-BEGIN
-    -- Добавляем поле для типа достижения если его нет
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
-                   WHERE table_name = 'achievements' AND column_name = 'achievement_type') THEN
-        ALTER TABLE achievements ADD COLUMN achievement_type VARCHAR(50) DEFAULT 'game';
-    END IF;
-    
-    -- Добавляем поле для сортировки если его нет
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
-                   WHERE table_name = 'achievements' AND column_name = 'sort_order') THEN
-        ALTER TABLE achievements ADD COLUMN sort_order INTEGER DEFAULT 0;
-    END IF;
-    
-    -- Добавляем поле для скрытых достижений если его нет
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
-                   WHERE table_name = 'achievements' AND column_name = 'is_hidden') THEN
-        ALTER TABLE achievements ADD COLUMN is_hidden BOOLEAN DEFAULT FALSE;
-    END IF;
-END $$;
+-- ============================================
+-- ОБНОВЛЕНИЕ СУЩЕСТВУЮЩИХ ДОСТИЖЕНИЙ
+-- ============================================
 
--- 2. Обновляем существующие достижения с типами
+-- 1. Обновляем существующие достижения с типами
 UPDATE achievements SET 
   achievement_type = CASE 
     WHEN title = 'Первая игра' THEN 'one_time'
@@ -176,7 +207,7 @@ UPDATE achievements SET
   END
 WHERE achievement_type IS NULL OR sort_order = 0;
 
--- 3. Добавляем новые достижения (если их ещё нет)
+-- 2. Добавляем новые достижения (если их ещё нет)
 INSERT INTO achievements (title, description, xp_reward, game_id, icon, condition_type, condition_value, achievement_type, sort_order, is_hidden) VALUES
 -- Прогрессивные достижения
 ('Игрок недели', 'Сыграйте 7 дней подряд', 300, NULL, '🔥', 'streak_days', 7, 'progressive', 6, false),
@@ -202,7 +233,10 @@ INSERT INTO achievements (title, description, xp_reward, game_id, icon, conditio
 ('Память мастера', 'Пройти игру Память на сложном уровне', 300, 'memory', '🧠', 'difficulty_complete', 3, 'game', 16, false)
 ON CONFLICT (title) DO NOTHING;
 
--- 4. Создаем индексы для быстрого поиска (если их нет)
+-- ============================================
+-- СОЗДАНИЕ ДОПОЛНИТЕЛЬНЫХ ИНДЕКСОВ
+-- ============================================
+
 DO $$ 
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_achievements_type') THEN
@@ -218,7 +252,10 @@ BEGIN
     END IF;
 END $$;
 
--- 5. Выводим информацию об обновлении
+-- ============================================
+-- ВЫВОД ИНФОРМАЦИИ ОБ ОБНОВЛЕНИИ
+-- ============================================
+
 SELECT 
     '✅ Система достижений обновлена!' as message,
     COUNT(*) as total_achievements,
@@ -227,3 +264,12 @@ SELECT
     SUM(CASE WHEN achievement_type = 'progressive' THEN 1 ELSE 0 END) as progressive_achievements,
     SUM(CASE WHEN is_hidden = TRUE THEN 1 ELSE 0 END) as hidden_achievements
 FROM achievements;
+
+-- Выводим информацию о созданных таблицах
+SELECT 
+    '📊 База данных Komoru инициализирована!' as message,
+    (SELECT COUNT(*) FROM users) as total_users,
+    (SELECT COUNT(*) FROM games) as total_games,
+    (SELECT COUNT(*) FROM achievements) as total_achievements,
+    (SELECT COUNT(*) FROM game_scores) as total_records,
+    (SELECT COUNT(*) FROM game_sessions) as total_sessions;

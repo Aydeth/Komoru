@@ -301,11 +301,12 @@ app.get('/api/user/me', async (req, res) => {
 
 // ==================== API ДЛЯ ИГР ====================
 
-// 7. Сохранить результат игры (с возвратом разблокированных достижений)
+// 7. Сохранить результат игры (с возвратом разблокированных достижений) - ИСПРАВЛЕННАЯ ВЕРСИЯ
 app.post('/api/games/:id/scores', async (req, res) => {
+  let client;
   try {
     const { id: gameId } = req.params;
-    const { userId, score, metadata = {} } = req.body;
+    const { userId, score, metadata = {}, session_duration } = req.body;
 
     console.log(`🎮 Сохранение результата: пользователь ${userId}, игра ${gameId}, счёт ${score}`);
 
@@ -333,38 +334,71 @@ app.post('/api/games/:id/scores', async (req, res) => {
 
     const gameTitle = gameCheck.rows[0].title;
 
-    // Сохраняем результат
-    const result = await db.query(
-      `INSERT INTO game_scores (user_id, game_id, score, metadata) 
-       VALUES ($1, $2, $3, $4)
+    // Начинаем транзакцию
+    client = await db.pool.connect();
+    await client.query('BEGIN');
+
+    // 1. Всегда создаём запись о сессии
+    const sessionResult = await client.query(
+      `INSERT INTO game_sessions (user_id, game_id, score, metadata, session_duration) 
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id, created_at`,
+      [userId, gameId, score, JSON.stringify(metadata), session_duration || null]
+    );
+
+    console.log(`📝 Создана игровая сессия #${sessionResult.rows[0].id}`);
+
+    // 2. Обновляем рекорд, только если текущий счёт лучше
+    const recordResult = await client.query(
+      `INSERT INTO game_scores (user_id, game_id, score, metadata, session_duration) 
+       VALUES ($1, $2, $3, $4, $5)
        ON CONFLICT (user_id, game_id) 
        DO UPDATE SET 
          score = GREATEST(game_scores.score, EXCLUDED.score),
          metadata = EXCLUDED.metadata,
+         session_duration = EXCLUDED.session_duration,
          created_at = CASE 
            WHEN EXCLUDED.score > game_scores.score THEN CURRENT_TIMESTAMP 
            ELSE game_scores.created_at 
          END
        RETURNING *`,
-      [userId, gameId, score, JSON.stringify(metadata)]
+      [userId, gameId, score, JSON.stringify(metadata), session_duration || null]
     );
 
-    // Проверяем достижения и получаем информацию о разблокированном
+    console.log(`🏆 Рекорд ${recordResult.rows[0].score > score ? 'оставлен прежним' : 'обновлен'}`);
+
+    // 3. Проверяем достижения
     const unlockedAchievement = await checkAchievements(userId, gameId, score, metadata);
 
-    // Обновляем общий опыт пользователя
+    // 4. Обновляем общий опыт пользователя
     await updateUserXP(userId);
 
-    // Получаем обновлённый опыт пользователя
-    const userResult = await db.query(
+    // 5. Получаем обновлённую статистику пользователя
+    const userResult = await client.query(
       'SELECT level, total_xp FROM users WHERE id = $1',
       [userId]
     );
 
+    // 6. Подсчитываем общее количество сессий пользователя
+    const sessionsCountResult = await client.query(
+      'SELECT COUNT(*) as total_sessions FROM game_sessions WHERE user_id = $1',
+      [userId]
+    );
+    const totalSessions = parseInt(sessionsCountResult.rows[0].total_sessions) || 0;
+
+    // Завершаем транзакцию
+    await client.query('COMMIT');
+
     const response = {
       success: true,
-      data: result.rows[0],
-      message: `Результат сохранен! Вы набрали ${score} очков в "${gameTitle}"`,
+      data: {
+        session: sessionResult.rows[0],
+        record: recordResult.rows[0],
+        stats: {
+          total_sessions: totalSessions
+        }
+      },
+      message: `Игра сохранена! Вы набрали ${score} очков в "${gameTitle}"`,
       user: userResult.rows[0] || null
     };
 
@@ -377,12 +411,21 @@ app.post('/api/games/:id/scores', async (req, res) => {
     res.json(response);
 
   } catch (error) {
+    // Откатываем транзакцию в случае ошибки
+    if (client) {
+      await client.query('ROLLBACK');
+    }
+    
     console.error('❌ Ошибка при сохранении результата:', error);
     res.status(500).json({
       success: false,
       error: 'Не удалось сохранить результат',
       details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
+  } finally {
+    if (client) {
+      client.release();
+    }
   }
 });
 
@@ -705,17 +748,17 @@ app.get('/api/users/:userId/achievements', async (req, res) => {
     
     const user = userCheck.rows[0];
     
-    // 2. ИСПРАВЛЕНИЕ: Получаем количество сессий - СЧИТАЕМ ВСЕ ЗАПИСИ В game_scores
+    // 2. Получаем количество сессий - теперь из game_sessions
     const sessionsQuery = await client.query(
-      'SELECT COUNT(*) as sessions_count FROM game_scores WHERE user_id = $1',
+      'SELECT COUNT(*) as sessions_count FROM game_sessions WHERE user_id = $1',
       [userId]
     );
     const sessionsCount = parseInt(sessionsQuery.rows[0].sessions_count) || 0;
-    console.log(`🎮 Количество сессий для ${userId}: ${sessionsCount} (запрос: COUNT(*))`);
-    
-    // 3. Для сравнения - сколько уникальных игр (оставим на всякий случай)
+    console.log(`🎮 Количество сессий для ${userId}: ${sessionsCount}`);
+
+    // 3. Получаем количество уникальных игр
     const uniqueGamesQuery = await client.query(
-      'SELECT COUNT(DISTINCT game_id) as unique_games FROM game_scores WHERE user_id = $1',
+      'SELECT COUNT(DISTINCT game_id) as unique_games FROM game_sessions WHERE user_id = $1',
       [userId]
     );
     const uniqueGames = parseInt(uniqueGamesQuery.rows[0].unique_games) || 0;
@@ -745,9 +788,9 @@ app.get('/api/users/:userId/achievements', async (req, res) => {
       queryParams
     );
     
-    // 5. Получаем общий счет - SUM всех score
+    // 5. Получаем общий счет - SUM всех score из game_sessions
     const totalScoreQuery = await client.query(
-      'SELECT SUM(score) as total_score FROM game_scores WHERE user_id = $1',
+      'SELECT SUM(score) as total_score FROM game_sessions WHERE user_id = $1',
       [userId]
     );
     const totalScore = parseInt(totalScoreQuery.rows[0].total_score) || 0;
@@ -834,21 +877,27 @@ app.get('/api/debug/user-stats/:userId', async (req, res) => {
     
     console.log(`🔍 Отладка статистики пользователя ${userId}`);
     
-    // 1. Сколько всего записей в game_scores (сессии)
+    // 1. Сколько всего сессий в game_sessions
     const totalSessions = await db.query(
+      'SELECT COUNT(*) as count FROM game_sessions WHERE user_id = $1',
+      [userId]
+    );
+    
+    // 2. Сколько рекордов в game_scores
+    const totalRecords = await db.query(
       'SELECT COUNT(*) as count FROM game_scores WHERE user_id = $1',
       [userId]
     );
     
-    // 2. Сколько уникальных игр
+    // 3. Сколько уникальных игр
     const uniqueGames = await db.query(
-      'SELECT COUNT(DISTINCT game_id) as count FROM game_scores WHERE user_id = $1',
+      'SELECT COUNT(DISTINCT game_id) as count FROM game_sessions WHERE user_id = $1',
       [userId]
     );
     
-    // 3. Все записи
+    // 4. Все сессии
     const allSessions = await db.query(
-      'SELECT game_id, score, created_at FROM game_scores WHERE user_id = $1 ORDER BY created_at DESC',
+      'SELECT game_id, score, created_at FROM game_sessions WHERE user_id = $1 ORDER BY created_at DESC LIMIT 10',
       [userId]
     );
     
@@ -857,9 +906,10 @@ app.get('/api/debug/user-stats/:userId', async (req, res) => {
       data: {
         user_id: userId,
         total_sessions: parseInt(totalSessions.rows[0].count),
+        total_records: parseInt(totalRecords.rows[0].count),
         unique_games: parseInt(uniqueGames.rows[0].count),
-        sessions: allSessions.rows,
-        query_used: 'COUNT(*) FROM game_scores'
+        recent_sessions: allSessions.rows,
+        query_used: 'game_sessions для сессий, game_scores для рекордов'
       }
     });
     

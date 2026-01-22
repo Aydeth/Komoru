@@ -149,7 +149,8 @@ const MemoryGame: React.FC<MemoryGameProps> = ({ onBack, onGameEnd }) => {
           time,
           moves,
           accuracy: moves > 0 ? ((matches * 2) / moves) * 100 : 0,
-          gameVersion: '1.1.0'
+          gameVersion: '1.1.0',
+          session_duration: time
         });
       }
     }

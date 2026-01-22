@@ -150,7 +150,8 @@ const SimpleSnakeGame: React.FC<SnakeGameProps> = ({ onBack, onGameEnd }) => {
               snakeLength: snake.length,
               speed: Math.round((300 - speed) / 300 * 100),
               highScore: score > highScore,
-              gameVersion: '1.0.0'
+              gameVersion: '1.0.0',
+              session_duration: 0
             });
           }
           return prevSnake;
