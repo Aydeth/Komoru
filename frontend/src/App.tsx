@@ -54,7 +54,7 @@ function App() {
                 <Routes>
                   <Route path="/" element={<HomePage />} />
                   <Route path="/game/:id" element={<GamePage />} />
-                  <Route path="/profile" element={<ProfilePage />} />
+                  <Route path="/profile" element={<UserProfilePage />} />
                   <Route path="/user/:userId" element={<UserProfilePage />} />
                 </Routes>
               </Layout>
