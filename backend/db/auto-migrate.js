@@ -15,7 +15,46 @@ async function autoMigrateDatabase() {
     
     const client = await pool.connect();
     
-    // 1. Проверяем таблицу achievements
+    // 1. Проверяем существование таблицы game_sessions
+    const checkGameSessionsTable = await client.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_name = 'game_sessions'
+      )
+    `);
+    
+    if (!checkGameSessionsTable.rows[0].exists) {
+      console.log('⚠️  Таблица game_sessions не существует! Создаём...');
+      
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS game_sessions (
+          id SERIAL PRIMARY KEY,
+          user_id VARCHAR(100) REFERENCES users(id) ON DELETE CASCADE,
+          game_id VARCHAR(50) REFERENCES games(id) ON DELETE CASCADE,
+          score INTEGER NOT NULL,
+          metadata JSONB DEFAULT '{}',
+          session_duration INTEGER,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      
+      console.log('✅ Таблица game_sessions создана');
+      
+      // Создаём индексы для game_sessions
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_game_sessions_user_id ON game_sessions(user_id);
+      `);
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_game_sessions_created_at ON game_sessions(created_at DESC);
+      `);
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_game_sessions_game_user ON game_sessions(game_id, user_id);
+      `);
+      
+      console.log('✅ Индексы для game_sessions созданы');
+    }
+    
+    // 2. Проверяем таблицу achievements
     const checkTable = await client.query(`
       SELECT EXISTS (
         SELECT FROM information_schema.tables 
@@ -29,7 +68,7 @@ async function autoMigrateDatabase() {
       return;
     }
     
-    // 2. Проверяем колонки
+    // 3. Проверяем колонки achievements
     const checkColumns = await client.query(`
       SELECT column_name 
       FROM information_schema.columns 
@@ -38,9 +77,9 @@ async function autoMigrateDatabase() {
     `);
     
     const existingColumns = checkColumns.rows.map(row => row.column_name);
-    console.log('📋 Найдены колонки:', existingColumns);
+    console.log('📋 Найдены колонки achievements:', existingColumns);
     
-    // 3. Список необходимых колонок
+    // 4. Список необходимых колонок для achievements
     const requiredColumns = [
       { name: 'achievement_type', type: 'VARCHAR(50) DEFAULT \'game\'' },
       { name: 'sort_order', type: 'INTEGER DEFAULT 0' },
@@ -48,7 +87,7 @@ async function autoMigrateDatabase() {
       { name: 'is_active', type: 'BOOLEAN DEFAULT TRUE' }
     ];
     
-    // 4. Добавляем недостающие колонки
+    // 5. Добавляем недостающие колонки в achievements
     for (const column of requiredColumns) {
       if (!existingColumns.includes(column.name)) {
         console.log(`🛠️  Добавляем колонку: ${column.name}`);
@@ -62,9 +101,27 @@ async function autoMigrateDatabase() {
       }
     }
     
-    // 5. Обновляем существующие записи (только если есть нужные колонки)
+    // 6. Проверяем колонку session_duration в game_scores
+    const checkGameScoresColumns = await client.query(`
+      SELECT column_name 
+      FROM information_schema.columns 
+      WHERE table_name = 'game_scores'
+      AND column_name = 'session_duration'
+    `);
+    
+    if (checkGameScoresColumns.rows.length === 0) {
+      console.log('🛠️  Добавляем колонку session_duration в game_scores...');
+      try {
+        await client.query(`ALTER TABLE game_scores ADD COLUMN session_duration INTEGER`);
+        console.log('   ✅ Колонка session_duration добавлена в game_scores');
+      } catch (err) {
+        console.log('   ⚠️  Ошибка добавления session_duration:', err.message);
+      }
+    }
+    
+    // 7. Обновляем существующие записи achievements
     const hasAchievementType = existingColumns.includes('achievement_type') || 
-                               requiredColumns.some(c => c.name === 'achievement_type' && !existingColumns.includes(c.name));
+                             requiredColumns.some(c => c.name === 'achievement_type' && !existingColumns.includes(c.name));
     const hasSortOrder = existingColumns.includes('sort_order') || 
                         requiredColumns.some(c => c.name === 'sort_order' && !existingColumns.includes(c.name));
     
@@ -99,7 +156,7 @@ async function autoMigrateDatabase() {
       }
     }
     
-    // 6. Добавляем новые достижения
+    // 8. Добавляем новые достижения
     const newAchievements = [
       ['Игрок недели', 'Сыграйте 7 дней подряд', 300, null, '🔥', 'streak_days', 7, 'progressive', 6, false],
       ['Активный игрок', 'Сыграйте 20 игр', 250, null, '🎯', 'play_count', 20, 'progressive', 7, false],
@@ -164,7 +221,7 @@ async function autoMigrateDatabase() {
     
     console.log(`✅ Всего добавлено новых достижений: ${addedCount}`);
     
-    // 7. Проверяем наличие колонки is_active и устанавливаем всем TRUE если есть
+    // 9. Проверяем наличие колонки is_active и устанавливаем всем TRUE если есть
     const finalColumns = await client.query(`
       SELECT column_name 
       FROM information_schema.columns 
@@ -186,9 +243,9 @@ async function autoMigrateDatabase() {
       }
     }
     
-    // 8. Итоговая статистика
-    const totalResult = await client.query('SELECT COUNT(*) as total FROM achievements');
-    console.log(`📊 Всего достижений в БД: ${totalResult.rows[0].total}`);
+    // 10. Итоговая статистика
+    const totalAchievements = await client.query('SELECT COUNT(*) as total FROM achievements');
+    console.log(`📊 Всего достижений в БД: ${totalAchievements.rows[0].total}`);
     
     // Статистика по типам если есть колонка
     if (finalColumnNames.includes('achievement_type')) {
@@ -200,7 +257,7 @@ async function autoMigrateDatabase() {
           ORDER BY count DESC
         `);
         
-        console.log('📈 Статистика по типам:');
+        console.log('📈 Статистика по типам достижений:');
         typeResult.rows.forEach(row => {
           console.log(`   • ${row.achievement_type}: ${row.count}`);
         });
@@ -208,6 +265,13 @@ async function autoMigrateDatabase() {
         console.log('⚠️  Не удалось получить статистику по типам:', err.message);
       }
     }
+    
+    // 11. Статистика по сессиям
+    const totalSessions = await client.query('SELECT COUNT(*) as total FROM game_sessions');
+    console.log(`🎮 Всего игровых сессий: ${totalSessions.rows[0].total}`);
+    
+    const totalRecords = await client.query('SELECT COUNT(*) as total FROM game_scores');
+    console.log(`🏆 Всего рекордов: ${totalRecords.rows[0].total}`);
     
     client.release();
     console.log('🎉 Автоматическая миграция завершена успешно!');

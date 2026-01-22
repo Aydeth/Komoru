@@ -117,51 +117,55 @@ const GamePage: React.FC = () => {
   };
 
   const handleGameEnd = async (score: number, metadata?: Record<string, any>) => {
-    try {
-      if (!id) return;
-      
-      // Пробуем сохранить результат
-      const response = await apiService.saveGameScore(id, score, {
-        ...metadata,
-        timestamp: new Date().toISOString(),
-        gameVersion: '1.0.0'
+  try {
+    if (!id) return;
+    
+    // Получаем длительность сессии из metadata (приходит из игр)
+    const sessionDuration = metadata?.session_duration || 0;
+    
+    // Пробуем сохранить результат
+    const response = await apiService.saveGameScore(id, score, {
+      ...metadata,
+      session_duration: sessionDuration, // ← ДОБАВЛЯЕМ ЭТО
+      timestamp: new Date().toISOString(),
+      gameVersion: '1.0.0'
+    });
+    
+    if (response.success) {
+      setNotification({
+        show: true,
+        message: `🎉 Результат сохранен: ${score} очков!`,
+        type: 'success'
       });
       
-      if (response.success) {
-        setNotification({
-          show: true,
-          message: `🎉 Результат сохранен: ${score} очков!`,
-          type: 'success'
-        });
-        
-        // Обновляем лидерборд с задержкой
-        setTimeout(() => {
-          if (id) {
-            loadGameData(id);
-          }
-        }, 1000);
-      } else if (response.error?.includes('Требуется авторизация')) {
-        setNotification({
-          show: true,
-          message: `Вы набрали ${score} очков! Войдите, чтобы сохранить результат.`,
-          type: 'warning'
-        });
-      } else {
-        setNotification({
-          show: true,
-          message: `Вы набрали ${score} очков!`,
-          type: 'info'
-        });
-      }
-    } catch (error) {
-      console.error('Error saving game result:', error);
+      // Обновляем лидерборд с задержкой
+      setTimeout(() => {
+        if (id) {
+          loadGameData(id);
+        }
+      }, 1000);
+    } else if (response.error?.includes('Требуется авторизация')) {
+      setNotification({
+        show: true,
+        message: `Вы набрали ${score} очков! Войдите, чтобы сохранить результат.`,
+        type: 'warning'
+      });
+    } else {
       setNotification({
         show: true,
         message: `Вы набрали ${score} очков!`,
         type: 'info'
       });
     }
-  };
+  } catch (error) {
+    console.error('Error saving game result:', error);
+    setNotification({
+      show: true,
+      message: `Вы набрали ${score} очков!`,
+      type: 'info'
+    });
+  }
+};
 
   const handleRetry = () => {
     setRetryCount(0);
