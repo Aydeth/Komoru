@@ -189,18 +189,36 @@ const AchievementsModal: React.FC<AchievementsModalProps> = ({ open, onClose, us
           }));
           setAchievements(mappedAchievements);
           
-          // Для текущего пользователя получаем разблокированные
-          const userResponse = await apiService.getUserAchievements();
-          if (userResponse.success && userResponse.data) {
-            const userUnlocked = userResponse.data.map((a: any) => a.id);
-            setUnlockedIds(userUnlocked);
-            
-            // Обновляем статус разблокировки
-            setAchievements(prev => prev.map(a => ({
-              ...a,
-              unlocked: userUnlocked.includes(a.id)
-            })));
-          }
+          // Для текущего пользователя получаем ВСЕ достижения (включая секретные)
+            if (userId) {
+            const userResponse = await apiService.getUserAchievementsById(userId);
+            if (userResponse.success && userResponse.data) {
+                // Собираем все ID разблокированных достижений
+                const unlockedIdsSet = new Set<number>();
+                const userAchievements = userResponse.data.achievements;
+                
+                if (userAchievements?.by_type) {
+                Object.values(userAchievements.by_type).forEach((achievementsArray: any) => {
+                    if (Array.isArray(achievementsArray)) {
+                    achievementsArray.forEach((achievement: any) => {
+                        if (achievement.id) {
+                        unlockedIdsSet.add(achievement.id);
+                        }
+                    });
+                    }
+                });
+                }
+                
+                const userUnlocked = Array.from(unlockedIdsSet);
+                setUnlockedIds(userUnlocked);
+                
+                // Обновляем статус разблокировки
+                setAchievements(prev => prev.map(a => ({
+                ...a,
+                unlocked: userUnlocked.includes(a.id)
+                })));
+            }
+            }
         } else {
           throw new Error(data.error || 'Не удалось загрузить достижения');
         }

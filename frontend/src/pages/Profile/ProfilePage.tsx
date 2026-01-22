@@ -18,6 +18,8 @@ import {
   Alert,
   CircularProgress,
   Fade,
+  Tabs,
+  Tab,
 } from '@mui/material';
 import {
   EmojiEvents,
@@ -32,17 +34,69 @@ import {
   Score,
   History,
   ViewList,
+  AccessTime,
+  MonetizationOn,
 } from '@mui/icons-material';
 import { useAuth } from '../../contexts/AuthContext';
-import { apiService, User as ApiUser, GameScore, Achievement } from '../../services/api';
+import { apiService } from '../../services/api';
 import AchievementsModal from '../../components/Achievements/AchievementsModal';
 import { useAchievements } from '../../contexts/AchievementContext';
 
+// Функция для форматирования больших чисел
+const formatNumber = (num: number): string => {
+  if (num >= 1000000000) {
+    return (num / 1000000000).toFixed(1) + 'B';
+  }
+  if (num >= 1000000) {
+    return (num / 1000000).toFixed(1) + 'M';
+  }
+  if (num >= 1000) {
+    return (num / 1000).toFixed(1) + 'K';
+  }
+  return num.toString();
+};
+
+// Функция для преобразования типа достижения
+const getAchievementTypeLabel = (type: string): string => {
+  const labels: Record<string, string> = {
+    'game': 'Игровые',
+    'one_time': 'Единоразовые',
+    'progressive': 'Прогрессивные',
+    'secret': 'Секретные',
+    'chain': 'Цепочка',
+    'collection': 'Коллекция',
+  };
+  return labels[type] || type;
+};
+
+interface UserProfileData {
+  user: {
+    id: string;
+    username: string;
+    avatar: string;
+    level: number;
+    xp: number;
+    currency?: number;
+  };
+  stats: {
+    total_achievements: number;
+    games_played: number;
+    total_score: number;
+    achievement_types: number;
+    currency?: number;
+    unique_games?: number;
+  };
+  achievements: {
+    total: number;
+    by_type: Record<string, any[]>;
+    recent: any[];
+  };
+}
+
 const ProfilePage: React.FC = () => {
   const { user: authUser, signInWithGoogle, loading: authLoading } = useAuth();
-  const [user, setUser] = useState<ApiUser | null>(null);
-  const [scores, setScores] = useState<GameScore[]>([]);
-  const [achievements, setAchievements] = useState<Achievement[]>([]);
+  const [profile, setProfile] = useState<UserProfileData | null>(null);
+  const [scores, setScores] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState(0);
@@ -53,61 +107,83 @@ const ProfilePage: React.FC = () => {
     achievementsCount: 0,
   });
   const [achievementsModalOpen, setAchievementsModalOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState(0);
 
   const MAX_RETRIES = 5;
   const RETRY_DELAY = 1000 * Math.min(retryCount + 1, 3);
 
   const loadUserData = useCallback(async () => {
+    if (!authUser) return;
+    
     try {
-      if (!authUser) return;
-      
       setLoading(true);
       setError(null);
       
-      console.log(`🔄 Загрузка данных пользователя (попытка ${retryCount + 1}/${MAX_RETRIES})...`);
+      console.log(`🔄 Загрузка профиля пользователя ${authUser.id} (попытка ${retryCount + 1}/${MAX_RETRIES})...`);
       
-      // Загружаем реальные данные пользователя
-      const userResponse = await apiService.getUser();
-      if (userResponse.success && userResponse.data) {
-        setUser(userResponse.data);
+      // Используем тот же endpoint, что и UserProfilePage
+      const response = await apiService.getUserAchievementsById(authUser.id);
+      
+      if (response.success && response.data) {
+        const data = response.data;
         
-        // Загружаем реальные результаты игр
+        // Формируем данные в том же формате, что и UserProfilePage
+        const userProfile: UserProfileData = {
+          user: {
+            id: data.user.id,
+            username: data.user.username || 'Игрок',
+            avatar: data.user.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${data.user.id}`,
+            level: data.user.level || 1,
+            xp: data.user.xp || 0,
+            currency: data.user.currency || 0,
+          },
+          stats: {
+            total_achievements: parseInt(data.stats.total_achievements) || 0,
+            games_played: parseInt(data.stats.games_played) || 0,
+            total_score: parseInt(data.stats.total_score) || 0,
+            achievement_types: data.stats.achievement_types || 0,
+            currency: data.user.currency || 0,
+            unique_games: data.stats.unique_games || 0,
+          },
+          achievements: {
+            total: data.achievements.total || 0,
+            by_type: data.achievements.by_type || {},
+            recent: data.achievements.recent || [],
+          },
+        };
+        
+        setProfile(userProfile);
+        
+        // Загружаем результаты игр для отображения
         const scoresResponse = await apiService.getUserScores();
         if (scoresResponse.success && scoresResponse.data) {
           setScores(scoresResponse.data);
           
-          // Рассчитываем статистику из реальных данных
-          const total = scoresResponse.data.reduce((sum, score) => sum + score.score, 0);
+          // Рассчитываем лучшую игру
           const bestGame = scoresResponse.data.reduce((best, score) => 
             score.score > best.score ? { game: score.game_title || score.game_id, score: score.score } : best,
             { game: '', score: 0 }
           );
           
           setStats({
-            totalScore: total,
+            totalScore: userProfile.stats.total_score,
             bestGame,
-            gamesPlayed: userResponse.data.gamesPlayed || 0,
-            achievementsCount: userResponse.data.achievements || 0,
+            gamesPlayed: userProfile.stats.games_played,
+            achievementsCount: userProfile.stats.total_achievements,
           });
         }
         
-        // Загружаем реальные достижения
-        const achievementsResponse = await apiService.getUserAchievements();
-        if (achievementsResponse.success && achievementsResponse.data) {
-          setAchievements(achievementsResponse.data);
-        }
-        
-        setRetryCount(0); // Сбрасываем счетчик при успехе
-        console.log(`✅ Данные пользователя загружены`);
+        setRetryCount(0);
+        console.log(`✅ Профиль пользователя ${authUser.id} загружен`);
+        console.log(`🎮 Игровых сессий: ${userProfile.stats.games_played}`);
       } else {
-        throw new Error(userResponse.error || 'Не удалось загрузить данные пользователя');
+        throw new Error(response.error || 'Не удалось загрузить профиль');
       }
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Ошибка при загрузке данных пользователя';
+      const errorMessage = err instanceof Error ? err.message : 'Ошибка при загрузке профиля';
       setError(errorMessage);
-      console.error(`❌ Ошибка загрузки данных пользователя (попытка ${retryCount + 1}):`, err);
+      console.error(`❌ Ошибка загрузки профиля (попытка ${retryCount + 1}):`, err);
       
-      // Если есть еще попытки - планируем повтор
       if (retryCount < MAX_RETRIES - 1) {
         console.log(`⏱️  Повтор через ${RETRY_DELAY}мс...`);
       }
@@ -135,7 +211,7 @@ const ProfilePage: React.FC = () => {
   // Загрузка данных при изменении пользователя
   useEffect(() => {
     if (authUser) {
-      setRetryCount(0); // Сбрасываем счетчик при смене пользователя
+      setRetryCount(0);
       loadUserData();
     } else {
       setLoading(false);
@@ -156,10 +232,11 @@ const ProfilePage: React.FC = () => {
   };
 
   // Расчет прогресса до следующего уровня
-  const xpForNextLevel = (user?.level || 1) * 1000;
-  const xpProgress = Math.min(((user?.xp || 0) / xpForNextLevel) * 100, 100);
+  const xpForNextLevel = (profile?.user.level || 1) * 1000;
+  const xpProgress = Math.min(((profile?.user.xp || 0) / xpForNextLevel) * 100, 100);
+  const currency = profile?.stats.currency || profile?.user.currency || 0;
 
-  if (authLoading || (loading && !user)) {
+  if (authLoading || (loading && !profile)) {
     return (
       <Container maxWidth="lg">
         <Box sx={{ 
@@ -295,6 +372,18 @@ const ProfilePage: React.FC = () => {
     );
   }
 
+  if (!profile) {
+    return (
+      <Container maxWidth="lg">
+        <Box sx={{ py: 4 }}>
+          <Alert severity="error">
+            Не удалось загрузить данные профиля
+          </Alert>
+        </Box>
+      </Container>
+    );
+  }
+
   return (
     <Container maxWidth="lg">
       <Box sx={{ py: 4 }}>
@@ -317,7 +406,7 @@ const ProfilePage: React.FC = () => {
           </Alert>
         )}
 
-        <Fade in={!!user}>
+        <Fade in={!!profile}>
           <Box>
             {/* Заголовок профиля */}
             <Paper elevation={0} sx={{ p: 3, mb: 4, bgcolor: 'primary.50', borderRadius: 3 }}>
@@ -341,130 +430,380 @@ const ProfilePage: React.FC = () => {
                   <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1.5, mt: 2 }}>
                     <Chip
                       icon={<TrendingUp />}
-                      label={`Уровень ${user?.level || 1}`}
+                      label={`Уровень ${profile.user.level}`}
                       color="primary"
                       variant="outlined"
                       sx={{ fontWeight: 600 }}
                     />
                     <Chip
-                      icon={<Diamond />}
-                      label={`${user?.currency || 0} 💎`}
+                      icon={<EmojiEvents />}
+                      label={`${profile.stats.total_achievements} достижений`}
                       sx={{ 
-                        bgcolor: 'gold.50', 
-                        color: 'gold.700',
+                        bgcolor: 'warning.50', 
+                        color: 'warning.700',
                         fontWeight: 600 
                       }}
                     />
                     <Chip
-                      icon={<MilitaryTech />}
-                      label={`#${Math.floor(Math.random() * 100) + 1} в рейтинге`}
-                      color="secondary"
-                      sx={{ fontWeight: 600 }}
+                      icon={<MonetizationOn />}
+                      label={`${currency} 💎`}
+                      sx={{ 
+                        bgcolor: 'success.50', 
+                        color: 'success.700',
+                        fontWeight: 600 
+                      }}
                     />
                   </Box>
                 </Box>
               </Box>
             </Paper>
 
-            <Box sx={{ 
-              display: 'flex', 
-              flexDirection: { xs: 'column', md: 'row' },
-              gap: 3 
-            }}>
-              {/* Левая колонка - Прогресс и статистика */}
-              <Box sx={{ flex: { md: 2 } }}>
+            {/* Табы для переключения между разделами */}
+            <Paper elevation={0} sx={{ mb: 4, borderRadius: 2, border: '1px solid', borderColor: 'divider' }}>
+              <Tabs
+                value={activeTab}
+                onChange={(_, newValue) => setActiveTab(newValue)}
+                variant="fullWidth"
+                sx={{
+                  '& .MuiTab-root': {
+                    textTransform: 'none',
+                    fontWeight: 600,
+                    fontSize: '1rem',
+                  }
+                }}
+              >
+                <Tab icon={<Score />} label="Статистика" />
+                <Tab icon={<EmojiEvents />} label="Достижения" />
+                <Tab icon={<AccessTime />} label="Активность" />
+              </Tabs>
+            </Paper>
+
+            {/* Содержимое табов */}
+            {activeTab === 0 && (
+              <Box>
+                <Typography variant="h5" gutterBottom sx={{ mb: 3, fontWeight: 600 }}>
+                  📊 Статистика
+                </Typography>
+                
+                {/* Статистика в Box */}
+                <Box sx={{ 
+                  display: 'flex', 
+                  flexWrap: 'wrap', 
+                  gap: 3, 
+                  mb: 4,
+                  '& > *': { 
+                    flex: '1 1 calc(25% - 24px)',
+                    minWidth: { xs: '100%', sm: 'calc(50% - 24px)', md: 'calc(25% - 24px)' }
+                  }
+                }}>
+                  {/* Очки */}
+                  <Card elevation={0} variant="outlined" sx={{ borderRadius: 2, height: '100%' }}>
+                    <CardContent sx={{ textAlign: 'center', py: 3 }}>
+                      <Score color="primary" sx={{ fontSize: 48, mb: 2 }} />
+                      <Typography variant="h3" color="primary" sx={{ fontWeight: 700, mb: 1 }}>
+                        {formatNumber(profile.stats.total_score)}
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        Всего очков
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                        {profile.stats.total_score.toLocaleString()} точное значение
+                      </Typography>
+                    </CardContent>
+                  </Card>
+                  
+                  {/* Игровые сессии */}
+                  <Card elevation={0} variant="outlined" sx={{ borderRadius: 2, height: '100%' }}>
+                    <CardContent sx={{ textAlign: 'center', py: 3 }}>
+                      <Games color="secondary" sx={{ fontSize: 48, mb: 2 }} />
+                      <Typography variant="h3" color="secondary" sx={{ fontWeight: 700, mb: 1 }}>
+                        {profile.stats.games_played}
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        Игровых сессий
+                      </Typography>
+                      {profile.stats.unique_games && profile.stats.unique_games > 0 && (
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                          ({profile.stats.unique_games} уникальных игр)
+                        </Typography>
+                      )}
+                    </CardContent>
+                  </Card>
+                  
+                  {/* Достижения */}
+                  <Card elevation={0} variant="outlined" sx={{ borderRadius: 2, height: '100%' }}>
+                    <CardContent sx={{ textAlign: 'center', py: 3 }}>
+                      <EmojiEvents color="success" sx={{ fontSize: 48, mb: 2 }} />
+                      <Typography variant="h3" color="success.main" sx={{ fontWeight: 700, mb: 1 }}>
+                        {profile.stats.total_achievements}
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        Достижений
+                      </Typography>
+                    </CardContent>
+                  </Card>
+                  
+                  {/* Кристаллы */}
+                  <Card elevation={0} variant="outlined" sx={{ borderRadius: 2, height: '100%' }}>
+                    <CardContent sx={{ textAlign: 'center', py: 3 }}>
+                      <MonetizationOn color="warning" sx={{ fontSize: 48, mb: 2 }} />
+                      <Typography variant="h3" color="warning.main" sx={{ fontWeight: 700, mb: 1 }}>
+                        {currency}
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        Кристаллов 💎
+                      </Typography>
+                    </CardContent>
+                  </Card>
+                </Box>
+
                 {/* Прогресс уровня */}
-                <Card elevation={0} variant="outlined" sx={{ mb: 3, borderRadius: 2 }}>
+                <Card elevation={0} variant="outlined" sx={{ mb: 4, borderRadius: 2 }}>
                   <CardContent>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-                      <Typography variant="h6" sx={{ fontWeight: 600 }}>
-                        Прогресс уровня
+                    <Typography variant="h6" gutterBottom sx={{ fontWeight: 600 }}>
+                      Прогресс уровня
+                    </Typography>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 1 }}>
+                      <Typography variant="h4" color="primary">
+                        {profile.user.level}
                       </Typography>
-                      <Typography variant="body2" color="primary" sx={{ fontWeight: 600 }}>
-                        {Math.floor(xpProgress)}%
+                      <Box sx={{ flex: 1 }}>
+                        <Box sx={{ 
+                          height: 12, 
+                          bgcolor: 'grey.200', 
+                          borderRadius: 6,
+                          overflow: 'hidden'
+                        }}>
+                          <Box
+                            sx={{
+                              height: '100%',
+                              bgcolor: 'primary.main',
+                              width: `${Math.min((profile.user.xp / (profile.user.level * 1000)) * 100, 100)}%`,
+                              transition: 'width 0.5s ease',
+                            }}
+                          />
+                        </Box>
+                      </Box>
+                      <Typography variant="h4" color="primary">
+                        {profile.user.level + 1}
                       </Typography>
                     </Box>
-                    <LinearProgress
-                      variant="determinate"
-                      value={xpProgress}
-                      sx={{ 
-                        height: 10, 
-                        borderRadius: 5,
-                        mb: 1 
-                      }}
-                    />
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <Typography variant="body2" color="text.secondary">
-                        {user?.xp || 0} / {xpForNextLevel} XP
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        До уровня {(user?.level || 1) + 1}
-                      </Typography>
-                    </Box>
+                    <Typography variant="body2" color="text.secondary">
+                      {profile.user.xp} XP из {profile.user.level * 1000} XP до следующего уровня
+                    </Typography>
                   </CardContent>
                 </Card>
+              </Box>
+            )}
 
-                {/* Статистика */}
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                  <Typography variant="h6" sx={{ fontWeight: 600 }}>
-                    📈 Статистика
+            {activeTab === 1 && (
+              <Box>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+                  <Typography variant="h5" sx={{ fontWeight: 600 }}>
+                    🏆 Достижения
                   </Typography>
+                  <Button
+                    variant="contained"
+                    startIcon={<ViewList />}
+                    onClick={() => setAchievementsModalOpen(true)}
+                  >
+                    Все достижения
+                  </Button>
                 </Box>
+
+                {/* Последние достижения */}
+                <Typography variant="h6" gutterBottom sx={{ mb: 3, fontWeight: 600 }}>
+                  Последние полученные достижения
+                </Typography>
+                
+                {profile.achievements.recent.length > 0 ? (
+                  <Box sx={{ 
+                    display: 'flex', 
+                    flexWrap: 'wrap', 
+                    gap: 3,
+                    '& > *': {
+                      flex: '1 1 calc(33.333% - 24px)',
+                      minWidth: { xs: '100%', sm: 'calc(50% - 24px)', md: 'calc(33.333% - 24px)' }
+                    }
+                  }}>
+                    {profile.achievements.recent.slice(0, 6).map((achievement, index) => (
+                      <Card key={achievement.id || index} variant="outlined" sx={{ borderRadius: 2, height: '100%' }}>
+                        <CardContent>
+                          <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                            <Typography variant="h2" sx={{ mr: 2 }}>
+                              {achievement.icon || '🏆'}
+                            </Typography>
+                            <Box sx={{ flex: 1 }}>
+                              <Typography variant="h6" component="div">
+                                {achievement.title}
+                              </Typography>
+                            </Box>
+                          </Box>
+                          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                            {achievement.description}
+                          </Typography>
+                          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <Chip 
+                              label={`+${achievement.xp_reward} XP`} 
+                              size="small" 
+                              color="primary" 
+                            />
+                            {achievement.unlocked_at && (
+                              <Typography variant="caption" color="text.secondary">
+                                {new Date(achievement.unlocked_at).toLocaleDateString()}
+                              </Typography>
+                            )}
+                          </Box>
+                          {achievement.game_title && (
+                            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+                              Игра: {achievement.game_title}
+                            </Typography>
+                          )}
+                          {achievement.achievement_type && achievement.achievement_type !== 'game' && (
+                            <Chip
+                              label={getAchievementTypeLabel(achievement.achievement_type)}
+                              size="small"
+                              variant="filled"
+                              sx={{
+                                mt: 1,
+                                fontSize: '0.7rem',
+                                height: 20,
+                                bgcolor: 'grey.100',
+                                color: 'grey.700'
+                              }}
+                            />
+                          )}
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </Box>
+                ) : (
+                  <Paper elevation={0} variant="outlined" sx={{ p: 4, textAlign: 'center', borderRadius: 2 }}>
+                    <EmojiEvents sx={{ fontSize: 48, color: 'text.secondary', mb: 2 }} />
+                    <Typography color="text.secondary" gutterBottom>
+                      Пока нет достижений
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      Играйте в игры, чтобы получать достижения!
+                    </Typography>
+                  </Paper>
+                )}
+              </Box>
+            )}
+
+            {activeTab === 2 && (
+              <Box>
+                <Typography variant="h5" gutterBottom sx={{ mb: 3, fontWeight: 600 }}>
+                  📈 Активность
+                </Typography>
                 
                 <Box sx={{ 
-                  display: 'grid',
-                  gridTemplateColumns: { xs: '1fr 1fr', sm: '1fr 1fr 1fr 1fr' },
-                  gap: 2,
-                  mb: 4
+                  display: 'flex', 
+                  flexWrap: 'wrap', 
+                  gap: 3,
+                  '& > *': {
+                    flex: '1 1 calc(50% - 24px)',
+                    minWidth: { xs: '100%', md: 'calc(50% - 24px)' }
+                  }
                 }}>
-                  <Paper elevation={0} variant="outlined" sx={{ p: 2, textAlign: 'center', borderRadius: 2, height: '100%' }}>
-                    <Score color="primary" sx={{ fontSize: 40, mb: 1 }} />
-                    <Typography variant="h4" color="primary" sx={{ fontWeight: 700 }}>
-                      {stats.totalScore.toLocaleString()}
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      Всего очков
-                    </Typography>
-                  </Paper>
-                  
-                  <Paper elevation={0} variant="outlined" sx={{ p: 2, textAlign: 'center', borderRadius: 2, height: '100%' }}>
-                    <MilitaryTech color="secondary" sx={{ fontSize: 40, mb: 1 }} />
-                    <Typography variant="h4" color="secondary" sx={{ fontWeight: 700 }}>
-                      {stats.bestGame.score.toLocaleString()}
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      Лучший результат
-                    </Typography>
-                    {stats.bestGame.game && (
-                      <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>
-                        в {stats.bestGame.game}
+                  {/* Игровая активность */}
+                  <Card elevation={0} variant="outlined" sx={{ borderRadius: 2 }}>
+                    <CardContent>
+                      <Typography variant="h6" gutterBottom sx={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Games /> Игровая активность
                       </Typography>
-                    )}
-                  </Paper>
-                  
-                  <Paper elevation={0} variant="outlined" sx={{ p: 2, textAlign: 'center', borderRadius: 2, height: '100%' }}>
-                    <Games color="success" sx={{ fontSize: 40, mb: 1 }} />
-                    <Typography variant="h4" color="success.main" sx={{ fontWeight: 700 }}>
-                      {stats.gamesPlayed}
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      Игр сыграно
-                    </Typography>
-                  </Paper>
-                  
-                  <Paper elevation={0} variant="outlined" sx={{ p: 2, textAlign: 'center', borderRadius: 2, height: '100%' }}>
-                    <EmojiEvents color="warning" sx={{ fontSize: 40, mb: 1 }} />
-                    <Typography variant="h4" color="warning.main" sx={{ fontWeight: 700 }}>
-                      {stats.achievementsCount}
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      Достижений
-                    </Typography>
-                  </Paper>
+                      <List disablePadding>
+                        <ListItem disableGutters sx={{ py: 1.5 }}>
+                          <ListItemIcon sx={{ minWidth: 40 }}>
+                            <Score color="action" />
+                          </ListItemIcon>
+                          <ListItemText
+                            primary="Всего очков"
+                            secondary={formatNumber(profile.stats.total_score)}
+                          />
+                          <Typography variant="body2" color="text.secondary">
+                            {profile.stats.total_score.toLocaleString()}
+                          </Typography>
+                        </ListItem>
+                        <Divider />
+                        <ListItem disableGutters sx={{ py: 1.5 }}>
+                          <ListItemIcon sx={{ minWidth: 40 }}>
+                            <Games color="action" />
+                          </ListItemIcon>
+                          <ListItemText
+                            primary="Игровых сессий"
+                            secondary={profile.stats.games_played}
+                          />
+                        </ListItem>
+                        <Divider />
+                        <ListItem disableGutters sx={{ py: 1.5 }}>
+                          <ListItemIcon sx={{ minWidth: 40 }}>
+                            <AccessTime color="action" />
+                          </ListItemIcon>
+                          <ListItemText
+                            primary="Средний счёт за сессию"
+                            secondary={profile.stats.games_played > 0 
+                              ? formatNumber(Math.round(profile.stats.total_score / profile.stats.games_played))
+                              : '0'
+                            }
+                          />
+                          <Typography variant="body2" color="text.secondary">
+                            {profile.stats.games_played > 0 
+                              ? Math.round(profile.stats.total_score / profile.stats.games_played).toLocaleString()
+                              : '0'
+                            }
+                          </Typography>
+                        </ListItem>
+                      </List>
+                    </CardContent>
+                  </Card>
+
+                  {/* Прогресс достижений */}
+                  <Card elevation={0} variant="outlined" sx={{ borderRadius: 2 }}>
+                    <CardContent>
+                      <Typography variant="h6" gutterBottom sx={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <TrendingUp /> Прогресс
+                      </Typography>
+                      <List disablePadding>
+                        <ListItem disableGutters sx={{ py: 1.5 }}>
+                          <ListItemIcon sx={{ minWidth: 40 }}>
+                            <EmojiEvents color="action" />
+                          </ListItemIcon>
+                          <ListItemText
+                            primary="Достижений получено"
+                            secondary={`${profile.stats.total_achievements} из ~30`}
+                          />
+                          <Typography variant="body2" color="primary" sx={{ fontWeight: 600 }}>
+                            {Math.round((profile.stats.total_achievements / 30) * 100)}%
+                          </Typography>
+                        </ListItem>
+                        <Divider />
+                        <ListItem disableGutters sx={{ py: 1.5 }}>
+                          <ListItemIcon sx={{ minWidth: 40 }}>
+                            <MonetizationOn color="action" />
+                          </ListItemIcon>
+                          <ListItemText
+                            primary="Кристаллы"
+                            secondary={`${currency} 💎`}
+                          />
+                        </ListItem>
+                        <Divider />
+                        <ListItem disableGutters sx={{ py: 1.5 }}>
+                          <ListItemIcon sx={{ minWidth: 40 }}>
+                            <Diamond color="action" />
+                          </ListItemIcon>
+                          <ListItemText
+                            primary="Уровень"
+                            secondary={`${profile.user.level} (${profile.user.xp} XP)`}
+                          />
+                        </ListItem>
+                      </List>
+                    </CardContent>
+                  </Card>
                 </Box>
 
                 {/* Последние игры */}
-                <Typography variant="h6" gutterBottom sx={{ mb: 2, fontWeight: 600 }}>
+                <Typography variant="h6" gutterBottom sx={{ mt: 4, mb: 2, fontWeight: 600 }}>
                   🎮 Последние игры
                 </Typography>
                 
@@ -521,138 +860,22 @@ const ProfilePage: React.FC = () => {
                   </Paper>
                 )}
               </Box>
+            )}
 
-              {/* Правая колонка - Информация и достижения */}
-              <Box sx={{ flex: { md: 1 }, maxWidth: { md: 400 } }}>
-                {/* Информация */}
-                <Typography variant="h6" gutterBottom sx={{ mb: 2, fontWeight: 600 }}>
-                  👤 Информация
-                </Typography>
-                
-                <Card elevation={0} variant="outlined" sx={{ mb: 3, borderRadius: 2 }}>
-                  <CardContent>
-                    <List disablePadding>
-                      <ListItem disableGutters sx={{ py: 1.5 }}>
-                        <ListItemIcon sx={{ minWidth: 40 }}>
-                          <CalendarToday color="action" />
-                        </ListItemIcon>
-                        <ListItemText
-                          primary="Дата регистрации"
-                          secondary={
-                            user?.joinedAt 
-                              ? new Date(user.joinedAt).toLocaleDateString('ru-RU', {
-                                  year: 'numeric',
-                                  month: 'long',
-                                  day: 'numeric'
-                                })
-                              : 'Недавно'
-                          }
-                        />
-                      </ListItem>
-                      <Divider />
-                      <ListItem disableGutters sx={{ py: 1.5 }}>
-                        <ListItemIcon sx={{ minWidth: 40 }}>
-                          <TrendingUp color="action" />
-                        </ListItemIcon>
-                        <ListItemText
-                          primary="Уровень прогресса"
-                          secondary={`${user?.xp || 0} XP из ${xpForNextLevel} XP`}
-                        />
-                      </ListItem>
-                      <Divider />
-                      <ListItem disableGutters sx={{ py: 1.5 }}>
-                        <ListItemIcon sx={{ minWidth: 40 }}>
-                          <Diamond color="action" />
-                        </ListItemIcon>
-                        <ListItemText
-                          primary="Кристаллы"
-                          secondary={`${user?.currency || 0} 💎`}
-                        />
-                      </ListItem>
-                    </List>
-                  </CardContent>
-                </Card>
+            <Divider sx={{ my: 4 }} />
 
-                {/* Достижения */}
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                  <Typography variant="h6" sx={{ fontWeight: 600 }}>
-                    🏆 Достижения
-                  </Typography>
-                  <Button
-                    variant="outlined"
-                    size="small"
-                    startIcon={<ViewList />}
-                    onClick={() => setAchievementsModalOpen(true)}
-                  >
-                    Все достижения
-                  </Button>
-                </Box>
-                
-                {achievements.length > 0 ? (
-                  <Card elevation={0} variant="outlined" sx={{ borderRadius: 2 }}>
-                    <CardContent>
-                      <List disablePadding>
-                        {achievements.slice(0, 3).map((achievement, index) => (
-                          <React.Fragment key={achievement.id}>
-                            <ListItem disableGutters sx={{ py: 1.5 }}>
-                              <ListItemIcon sx={{ minWidth: 40 }}>
-                                <Typography variant="h5">
-                                  {achievement.icon}
-                                </Typography>
-                              </ListItemIcon>
-                              <ListItemText
-                                primary={
-                                  <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                                    {achievement.title}
-                                  </Typography>
-                                }
-                                secondary={
-                                  <Typography variant="caption" color="text.secondary">
-                                    {achievement.description}
-                                  </Typography>
-                                }
-                              />
-                              <Chip 
-                                label={`+${achievement.xp_reward} XP`} 
-                                size="small" 
-                                color="primary" 
-                                variant="outlined"
-                              />
-                            </ListItem>
-                            {index < achievements.length - 1 && index < 2 && <Divider />}
-                          </React.Fragment>
-                        ))}
-                      </List>
-                      {achievements.length > 3 && (
-                        <Box sx={{ textAlign: 'center', mt: 2 }}>
-                          <Typography variant="caption" color="text.secondary">
-                            И ещё {achievements.length - 3} достижений
-                          </Typography>
-                        </Box>
-                      )}
-                    </CardContent>
-                  </Card>
-                ) : (
-                  <Paper elevation={0} variant="outlined" sx={{ p: 3, textAlign: 'center', borderRadius: 2 }}>
-                    <EmojiEvents sx={{ fontSize: 48, color: 'text.secondary', mb: 2 }} />
-                    <Typography color="text.secondary" gutterBottom>
-                      Достижений пока нет
-                    </Typography>
-                    <Typography variant="body2" color="text-secondary">
-                      Играйте и выполняйте задания, чтобы получить достижения
-                    </Typography>
-                  </Paper>
-                )}
-              </Box>
-            </Box>
+            <Typography variant="body2" color="text.secondary" align="center">
+              Профиль пользователя • ID: {profile.user.id.substring(0, 12)}...
+            </Typography>
+
+            {/* Модальное окно достижений */}
+            <AchievementsModal
+              open={achievementsModalOpen}
+              onClose={() => setAchievementsModalOpen(false)}
+              userId={authUser.id}
+            />
           </Box>
         </Fade>
-
-        {/* Модальное окно достижений */}
-        <AchievementsModal
-          open={achievementsModalOpen}
-          onClose={() => setAchievementsModalOpen(false)}
-        />
       </Box>
     </Container>
   );

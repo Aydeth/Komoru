@@ -764,7 +764,7 @@ app.get('/api/users/:userId/achievements', async (req, res) => {
     const uniqueGames = parseInt(uniqueGamesQuery.rows[0].unique_games) || 0;
     console.log(`🎮 Уникальных игр для ${userId}: ${uniqueGames}`);
     
-    // 4. Получаем достижения пользователя
+    // 4. Получаем достижения пользователя - ВСЕ достижения, включая секретные
     const achievementsQuery = `
       SELECT 
         a.*,
@@ -775,14 +775,15 @@ app.get('/api/users/:userId/achievements', async (req, res) => {
       JOIN user_achievements ua ON a.id = ua.achievement_id
       LEFT JOIN games g ON a.game_id = g.id
       WHERE ua.user_id = $1
-      AND (COALESCE(a.is_hidden, a.is_secret, FALSE) = FALSE OR $2 = TRUE)
-      ORDER BY ua.unlocked_at DESC
-      ${limit ? `LIMIT $3` : ''}
+      ORDER BY 
+        CASE WHEN COALESCE(a.is_hidden, a.is_secret, FALSE) = TRUE THEN 1 ELSE 0 END,
+        ua.unlocked_at DESC
+      ${limit ? `LIMIT $2` : ''}
     `;
-    
-    const queryParams = [userId, false];
+
+    const queryParams = [userId];
     if (limit) queryParams.push(parseInt(limit));
-    
+
     const achievementsResult = await client.query(
       achievementsQuery,
       queryParams
