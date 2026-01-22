@@ -42,9 +42,16 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   };
 
   const handleProfileClick = () => {
-    handleMenuClose();
-    navigate('/profile');
-  };
+  handleMenuClose();
+  
+  // Если это собственный профиль - открываем без кнопки "Назад"
+  // Если чужой профиль - будет другая логика
+  if (user) {
+    navigate(`/user/${user.id}`, { 
+      state: { showBackButton: false } 
+    });
+  }
+};
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>

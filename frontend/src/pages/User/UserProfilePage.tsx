@@ -87,9 +87,16 @@ interface UserProfile {
   };
 }
 
+interface UserProfilePageProps {
+  showBackButton?: boolean;
+}
+
 const UserProfilePage: React.FC = () => {
   const { userId } = useParams<{ userId: string }>();
   const navigate = useNavigate();
+  
+  // Проверяем, можно ли вернуться назад
+  const canGoBack = window.history.length > 1;
   
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
@@ -268,8 +275,9 @@ const UserProfilePage: React.FC = () => {
 
   if (!profile) {
     return (
-      <Container maxWidth="lg">
-        <Box sx={{ py: 4 }}>
+    <Container maxWidth="lg">
+      <Box sx={{ py: 4 }}>
+        {canGoBack && (
           <Button
             startIcon={<ArrowBackIcon />}
             onClick={() => navigate(-1)}
@@ -277,6 +285,7 @@ const UserProfilePage: React.FC = () => {
           >
             Назад
           </Button>
+        )}
           <Alert severity="error">
             Пользователь не найден
           </Alert>
