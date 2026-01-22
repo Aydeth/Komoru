@@ -1,4 +1,4 @@
-// pages/User/UserProfilePage.tsx
+// pages/User/UserProfilePage.tsx - ОБНОВЛЁННАЯ ВЕРСИЯ
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import {
@@ -35,7 +35,7 @@ import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import MonetizationOnIcon from '@mui/icons-material/MonetizationOn';
 import { apiService } from '../../services/api';
 import AchievementsModal from '../../components/Achievements/AchievementsModal';
-import { useAuth } from '../../contexts/AuthContext'; // Импортируем useAuth
+import { useAuth } from '../../contexts/AuthContext';
 
 // Функция для форматирования больших чисел
 const formatNumber = (num: number): string => {
@@ -92,7 +92,7 @@ const UserProfilePage: React.FC = () => {
   const { userId } = useParams<{ userId: string }>();
   const navigate = useNavigate();
   const location = useLocation();
-  const { user: authUser } = useAuth(); // Используем useAuth
+  const { user: authUser } = useAuth();
   
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
@@ -104,104 +104,66 @@ const UserProfilePage: React.FC = () => {
   const MAX_RETRIES = 5;
   const RETRY_DELAY = 1000 * Math.min(retryCount + 1, 3);
 
-  // Определяем, нужно ли показывать кнопку "Назад"
-  // НЕ показываем если:
-  // 1. Пришел редирект с /profile (state.noBackButton = true)
-  // 2. Пользователь зашел по прямой ссылке (window.history.length <= 1)
-  // 3. Это собственный профиль и нет истории навигации
-  const showBackButton = useMemo(() => {
-    // Если в state явно сказано не показывать (редирект с /profile)
-    if (location.state?.noBackButton === true) {
-      return false;
-    }
-    
-    // Нет истории навигации (прямой заход по ссылке)
-    if (window.history.length <= 1) {
-      return false;
-    }
-    
-    // Это собственный профиль текущего пользователя
-    const isOwnProfile = authUser && userId === authUser.id;
-    
-    // Для собственного профиля показываем кнопку только если есть откуда вернуться
-    // и мы не пришли с главной страницы через редирект
-    if (isOwnProfile) {
-      // Проверяем referrer (откуда пришли)
-      const referrer = document.referrer;
-      const cameFromSameSite = referrer.includes(window.location.origin);
-      const cameFromHome = referrer.endsWith(window.location.origin + '/') || 
-                          referrer.endsWith(window.location.origin);
-      
-      // Если пришли с главной того же сайта - не показываем кнопку
-      if (cameFromSameSite && cameFromHome) {
-        return false;
-      }
-    }
-    
-    // Во всех остальных случаях показываем кнопку "Назад"
-    return true;
-  }, [location.state, authUser, userId]);
-
   // Определяем, это личный профиль или чужой
   const isOwnProfile = authUser && userId === authUser.id;
 
   const loadUserProfile = useCallback(async () => {
-  if (!userId) return;
-  
-  try {
-    setLoading(true);
-    setError(null);
+    if (!userId) return;
     
-    console.log(`🔄 Загрузка профиля пользователя ${userId} (попытка ${retryCount + 1}/${MAX_RETRIES})...`);
-    
-    const response = await apiService.getUserAchievementsById(userId);
-    
-    if (response.success && response.data) {
-      const data = response.data;
+    try {
+      setLoading(true);
+      setError(null);
       
-      const userProfile: UserProfile = {
-        user: {
-          id: data.user.id,
-          username: data.user.username || 'Игрок',
-          avatar: data.user.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${data.user.id}`,
-          level: data.user.level || 1,
-          xp: data.user.xp || 0,
-          currency: data.user.currency || 0,
-        },
-        stats: {
-          total_achievements: parseInt(data.stats.total_achievements) || 0,
-          games_played: parseInt(data.stats.games_played) || 0,
-          total_score: parseInt(data.stats.total_score) || 0,
-          achievement_types: data.stats.achievement_types || 0,
-          currency: data.user.currency || 0,
-          unique_games: data.stats.unique_games || 0,
-        },
-        achievements: {
-          total: data.achievements.total || 0,
-          by_type: data.achievements.by_type || {},
-          recent: data.achievements.recent || [],
-        },
-      };
+      console.log(`🔄 Загрузка профиля пользователя ${userId} (попытка ${retryCount + 1}/${MAX_RETRIES})...`);
       
-      setProfile(userProfile);
-      setRetryCount(0);
-      console.log(`✅ Профиль пользователя ${userId} загружен`);
-      console.log(`🎮 Игровых сессий: ${userProfile.stats.games_played}`);
-    } else {
-      throw new Error(response.error || 'Не удалось загрузить профиль');
+      const response = await apiService.getUserAchievementsById(userId);
+      
+      if (response.success && response.data) {
+        const data = response.data;
+        
+        const userProfile: UserProfile = {
+          user: {
+            id: data.user.id,
+            username: data.user.username || 'Игрок',
+            avatar: data.user.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${data.user.id}`,
+            level: data.user.level || 1,
+            xp: data.user.xp || 0,
+            currency: data.user.currency || 0,
+          },
+          stats: {
+            total_achievements: parseInt(data.stats.total_achievements) || 0,
+            games_played: parseInt(data.stats.games_played) || 0,
+            total_score: parseInt(data.stats.total_score) || 0,
+            achievement_types: data.stats.achievement_types || 0,
+            currency: data.user.currency || 0,
+            unique_games: data.stats.unique_games || 0,
+          },
+          achievements: {
+            total: data.achievements.total || 0,
+            by_type: data.achievements.by_type || {},
+            recent: data.achievements.recent || [],
+          },
+        };
+        
+        setProfile(userProfile);
+        setRetryCount(0);
+        console.log(`✅ Профиль пользователя ${userId} загружен`);
+        console.log(`🎮 Игровых сессий: ${userProfile.stats.games_played}`);
+      } else {
+        throw new Error(response.error || 'Не удалось загрузить профиль');
+      }
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Ошибка при загрузке профиля';
+      setError(errorMessage);
+      console.error(`❌ Ошибка загрузки профиля (попытка ${retryCount + 1}):`, err);
+      
+      if (retryCount < MAX_RETRIES - 1) {
+        console.log(`⏱️  Повтор через ${RETRY_DELAY}мс...`);
+      }
+    } finally {
+      setLoading(false);
     }
-  } catch (err) {
-    const errorMessage = err instanceof Error ? err.message : 'Ошибка при загрузке профиля';
-    setError(errorMessage);
-    console.error(`❌ Ошибка загрузки профиля (попытка ${retryCount + 1}):`, err);
-    
-    if (retryCount < MAX_RETRIES - 1) {
-      console.log(`⏱️  Повтор через ${RETRY_DELAY}мс...`);
-    }
-  } finally {
-    setLoading(false);
-  }
-}, [userId, retryCount]);
+  }, [userId, retryCount]);
 
   // Автоматический повтор при ошибке
   useEffect(() => {
@@ -233,7 +195,6 @@ const UserProfilePage: React.FC = () => {
   };
 
   const handleBackClick = () => {
-    // Если нет истории навигации или мало записей, идем на главную
     if (window.history.length <= 2) {
       navigate('/');
     } else {
@@ -273,16 +234,6 @@ const UserProfilePage: React.FC = () => {
     return (
       <Container maxWidth="lg">
         <Box sx={{ py: 4 }}>
-          {showBackButton && (
-            <Button
-              startIcon={<ArrowBackIcon />}
-              onClick={handleBackClick}
-              sx={{ mb: 3 }}
-            >
-              Назад
-            </Button>
-          )}
-          
           <Alert 
             severity="error" 
             action={
@@ -323,15 +274,6 @@ const UserProfilePage: React.FC = () => {
     return (
       <Container maxWidth="lg">
         <Box sx={{ py: 4 }}>
-          {showBackButton && (
-            <Button
-              startIcon={<ArrowBackIcon />}
-              onClick={handleBackClick}
-              sx={{ mb: 3 }}
-            >
-              Назад
-            </Button>
-          )}
           <Alert severity="error">
             Пользователь не найден
           </Alert>
@@ -364,26 +306,11 @@ const UserProfilePage: React.FC = () => {
           </Alert>
         )}
 
-        {showBackButton && (
-          <Button
-            startIcon={<ArrowBackIcon />}
-            onClick={handleBackClick}
-            sx={{ mb: 3 }}
-          >
-            Назад
-          </Button>
-        )}
-
-        {/* Заголовок для собственного профиля без кнопки "Назад" */}
-        {isOwnProfile && !showBackButton && (
-          <Typography variant="h4" gutterBottom sx={{ mb: 3, fontWeight: 700 }}>
-            👤 Мой профиль
-          </Typography>
-        )}
+        {/* УБРАН КНОПКА "НАЗАД" и ЗАГОЛОВОК "МОЙ ПРОФИЛЬ" */}
 
         <Fade in={!!profile}>
           <Box>
-            {/* Заголовок профиля */}
+            {/* Заголовок профиля - одинаковая структура для всех */}
             <Paper elevation={0} sx={{ p: 3, mb: 4, bgcolor: 'primary.50', borderRadius: 3 }}>
               <Box sx={{ display: 'flex', flexDirection: { xs: 'column', md: 'row' }, alignItems: 'center', gap: 3 }}>
                 <Avatar
@@ -399,11 +326,10 @@ const UserProfilePage: React.FC = () => {
                   <Typography variant="h4" gutterBottom sx={{ fontWeight: 700 }}>
                     {profile.user.username}
                   </Typography>
-                  {!isOwnProfile && (
-                    <Typography variant="body2" color="text.secondary" gutterBottom>
-                      ID: {profile.user.id.substring(0, 8)}...
-                    </Typography>
-                  )}
+                  {/* ID отображается ВСЕГДА, для всех пользователей */}
+                  <Typography variant="body2" color="text.secondary" gutterBottom>
+                    ID: {profile.user.id.substring(0, 8)}...
+                  </Typography>
                   <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1.5, mt: 2 }}>
                     <Chip
                       icon={<TrendingUpIcon />}
@@ -780,11 +706,10 @@ const UserProfilePage: React.FC = () => {
 
             <Divider sx={{ my: 4 }} />
 
-            {!isOwnProfile && (
-              <Typography variant="body2" color="text.secondary" align="center">
-                Профиль пользователя • ID: {profile.user.id.substring(0, 12)}...
-              </Typography>
-            )}
+            {/* ID отображается ВСЕГДА внизу страницы, для всех пользователей */}
+            <Typography variant="body2" color="text.secondary" align="center">
+              Профиль пользователя • ID: {profile.user.id.substring(0, 12)}...
+            </Typography>
 
             {/* Модальное окно достижений */}
             <AchievementsModal
