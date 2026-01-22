@@ -13,8 +13,8 @@ import AchievementManager from './components/Achievements/AchievementManager'; /
 // Страницы
 import HomePage from './pages/Home/HomePage';
 import GamePage from './pages/Game/GamePage';
-import ProfilePage from './pages/Profile/ProfilePage';
 import UserProfilePage from './pages/User/UserProfilePage';
+import ProfileRedirect from './pages/Profile/ProfileRedirect';
 
 // Компоненты
 import Layout from './components/Layout/Layout';
@@ -54,7 +54,7 @@ function App() {
                 <Routes>
                   <Route path="/" element={<HomePage />} />
                   <Route path="/game/:id" element={<GamePage />} />
-                  <Route path="/profile" element={<UserProfilePage />} />
+                  <Route path="/profile" element={<ProfileRedirect />} />
                   <Route path="/user/:userId" element={<UserProfilePage />} />
                 </Routes>
               </Layout>

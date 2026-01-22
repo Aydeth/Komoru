@@ -44,11 +44,11 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const handleProfileClick = () => {
   handleMenuClose();
   
-  // Если это собственный профиль - открываем без кнопки "Назад"
-  // Если чужой профиль - будет другая логика
   if (user) {
+    // Переходим на профиль пользователя с флагом noBackButton
     navigate(`/user/${user.id}`, { 
-      state: { showBackButton: false } 
+      state: { noBackButton: true },
+      replace: false // Не заменяем историю, чтобы можно было вернуться
     });
   }
 };

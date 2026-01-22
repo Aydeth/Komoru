@@ -1,6 +1,6 @@
 // pages/User/UserProfilePage.tsx
-import React, { useState, useEffect, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import {
   Container,
   Box,
@@ -35,6 +35,7 @@ import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import MonetizationOnIcon from '@mui/icons-material/MonetizationOn';
 import { apiService } from '../../services/api';
 import AchievementsModal from '../../components/Achievements/AchievementsModal';
+import { useAuth } from '../../contexts/AuthContext'; // Импортируем useAuth
 
 // Функция для форматирования больших чисел
 const formatNumber = (num: number): string => {
@@ -74,11 +75,11 @@ interface UserProfile {
   };
   stats: {
     total_achievements: number;
-    games_played: number;  // Теперь это сессии
+    games_played: number;
     total_score: number;
     achievement_types: number;
     currency?: number;
-    unique_games?: number;  // Добавляем
+    unique_games?: number;
   };
   achievements: {
     total: number;
@@ -87,16 +88,11 @@ interface UserProfile {
   };
 }
 
-interface UserProfilePageProps {
-  showBackButton?: boolean;
-}
-
 const UserProfilePage: React.FC = () => {
   const { userId } = useParams<{ userId: string }>();
   const navigate = useNavigate();
-  
-  // Проверяем, можно ли вернуться назад
-  const canGoBack = window.history.length > 1;
+  const location = useLocation();
+  const { user: authUser } = useAuth(); // Используем useAuth
   
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
@@ -107,6 +103,47 @@ const UserProfilePage: React.FC = () => {
 
   const MAX_RETRIES = 5;
   const RETRY_DELAY = 1000 * Math.min(retryCount + 1, 3);
+
+  // Определяем, нужно ли показывать кнопку "Назад"
+  // НЕ показываем если:
+  // 1. Пришел редирект с /profile (state.noBackButton = true)
+  // 2. Пользователь зашел по прямой ссылке (window.history.length <= 1)
+  // 3. Это собственный профиль и нет истории навигации
+  const showBackButton = useMemo(() => {
+    // Если в state явно сказано не показывать (редирект с /profile)
+    if (location.state?.noBackButton === true) {
+      return false;
+    }
+    
+    // Нет истории навигации (прямой заход по ссылке)
+    if (window.history.length <= 1) {
+      return false;
+    }
+    
+    // Это собственный профиль текущего пользователя
+    const isOwnProfile = authUser && userId === authUser.id;
+    
+    // Для собственного профиля показываем кнопку только если есть откуда вернуться
+    // и мы не пришли с главной страницы через редирект
+    if (isOwnProfile) {
+      // Проверяем referrer (откуда пришли)
+      const referrer = document.referrer;
+      const cameFromSameSite = referrer.includes(window.location.origin);
+      const cameFromHome = referrer.endsWith(window.location.origin + '/') || 
+                          referrer.endsWith(window.location.origin);
+      
+      // Если пришли с главной того же сайта - не показываем кнопку
+      if (cameFromSameSite && cameFromHome) {
+        return false;
+      }
+    }
+    
+    // Во всех остальных случаях показываем кнопку "Назад"
+    return true;
+  }, [location.state, authUser, userId]);
+
+  // Определяем, это личный профиль или чужой
+  const isOwnProfile = authUser && userId === authUser.id;
 
   const loadUserProfile = useCallback(async () => {
   if (!userId) return;
@@ -122,7 +159,6 @@ const UserProfilePage: React.FC = () => {
     if (response.success && response.data) {
       const data = response.data;
       
-      // Теперь games_played - это реальное количество сессий!
       const userProfile: UserProfile = {
         user: {
           id: data.user.id,
@@ -134,11 +170,11 @@ const UserProfilePage: React.FC = () => {
         },
         stats: {
           total_achievements: parseInt(data.stats.total_achievements) || 0,
-          games_played: parseInt(data.stats.games_played) || 0, // Теперь это сессии!
+          games_played: parseInt(data.stats.games_played) || 0,
           total_score: parseInt(data.stats.total_score) || 0,
           achievement_types: data.stats.achievement_types || 0,
           currency: data.user.currency || 0,
-          unique_games: data.stats.unique_games || 0, // Добавляем уникальные игры
+          unique_games: data.stats.unique_games || 0,
         },
         achievements: {
           total: data.achievements.total || 0,
@@ -151,7 +187,6 @@ const UserProfilePage: React.FC = () => {
       setRetryCount(0);
       console.log(`✅ Профиль пользователя ${userId} загружен`);
       console.log(`🎮 Игровых сессий: ${userProfile.stats.games_played}`);
-      console.log(`🎮 Уникальных игр: ${userProfile.stats.unique_games}`);
     } else {
       throw new Error(response.error || 'Не удалось загрузить профиль');
     }
@@ -197,6 +232,15 @@ const UserProfilePage: React.FC = () => {
     loadUserProfile();
   };
 
+  const handleBackClick = () => {
+    // Если нет истории навигации или мало записей, идем на главную
+    if (window.history.length <= 2) {
+      navigate('/');
+    } else {
+      navigate(-1);
+    }
+  };
+
   if (loading && !profile) {
     return (
       <Container maxWidth="lg">
@@ -229,13 +273,15 @@ const UserProfilePage: React.FC = () => {
     return (
       <Container maxWidth="lg">
         <Box sx={{ py: 4 }}>
-          <Button
-            startIcon={<ArrowBackIcon />}
-            onClick={() => navigate(-1)}
-            sx={{ mb: 3 }}
-          >
-            Назад
-          </Button>
+          {showBackButton && (
+            <Button
+              startIcon={<ArrowBackIcon />}
+              onClick={handleBackClick}
+              sx={{ mb: 3 }}
+            >
+              Назад
+            </Button>
+          )}
           
           <Alert 
             severity="error" 
@@ -275,17 +321,17 @@ const UserProfilePage: React.FC = () => {
 
   if (!profile) {
     return (
-    <Container maxWidth="lg">
-      <Box sx={{ py: 4 }}>
-        {canGoBack && (
-          <Button
-            startIcon={<ArrowBackIcon />}
-            onClick={() => navigate(-1)}
-            sx={{ mb: 3 }}
-          >
-            Назад
-          </Button>
-        )}
+      <Container maxWidth="lg">
+        <Box sx={{ py: 4 }}>
+          {showBackButton && (
+            <Button
+              startIcon={<ArrowBackIcon />}
+              onClick={handleBackClick}
+              sx={{ mb: 3 }}
+            >
+              Назад
+            </Button>
+          )}
           <Alert severity="error">
             Пользователь не найден
           </Alert>
@@ -318,13 +364,22 @@ const UserProfilePage: React.FC = () => {
           </Alert>
         )}
 
-        <Button
-          startIcon={<ArrowBackIcon />}
-          onClick={() => navigate(-1)}
-          sx={{ mb: 3 }}
-        >
-          Назад
-        </Button>
+        {showBackButton && (
+          <Button
+            startIcon={<ArrowBackIcon />}
+            onClick={handleBackClick}
+            sx={{ mb: 3 }}
+          >
+            Назад
+          </Button>
+        )}
+
+        {/* Заголовок для собственного профиля без кнопки "Назад" */}
+        {isOwnProfile && !showBackButton && (
+          <Typography variant="h4" gutterBottom sx={{ mb: 3, fontWeight: 700 }}>
+            👤 Мой профиль
+          </Typography>
+        )}
 
         <Fade in={!!profile}>
           <Box>
@@ -344,9 +399,11 @@ const UserProfilePage: React.FC = () => {
                   <Typography variant="h4" gutterBottom sx={{ fontWeight: 700 }}>
                     {profile.user.username}
                   </Typography>
-                  <Typography variant="body2" color="text.secondary" gutterBottom>
-                    ID: {profile.user.id.substring(0, 8)}...
-                  </Typography>
+                  {!isOwnProfile && (
+                    <Typography variant="body2" color="text.secondary" gutterBottom>
+                      ID: {profile.user.id.substring(0, 8)}...
+                    </Typography>
+                  )}
                   <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1.5, mt: 2 }}>
                     <Chip
                       icon={<TrendingUpIcon />}
@@ -433,22 +490,22 @@ const UserProfilePage: React.FC = () => {
                   </Card>
                   
                   {/* Игровые сессии */}
-                <Card elevation={0} variant="outlined" sx={{ borderRadius: 2, height: '100%' }}>
-                <CardContent sx={{ textAlign: 'center', py: 3 }}>
-                    <GamesIcon color="secondary" sx={{ fontSize: 48, mb: 2 }} />
-                    <Typography variant="h3" color="secondary" sx={{ fontWeight: 700, mb: 1 }}>
-                    {profile.stats.games_played}
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                    Игровых сессий
-                    </Typography>
-                    {profile.stats.unique_games && (
-                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-                        ({profile.stats.unique_games} уникальных игр)
-                    </Typography>
-                    )}
-                </CardContent>
-                </Card>
+                  <Card elevation={0} variant="outlined" sx={{ borderRadius: 2, height: '100%' }}>
+                    <CardContent sx={{ textAlign: 'center', py: 3 }}>
+                      <GamesIcon color="secondary" sx={{ fontSize: 48, mb: 2 }} />
+                      <Typography variant="h3" color="secondary" sx={{ fontWeight: 700, mb: 1 }}>
+                        {profile.stats.games_played}
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        Игровых сессий
+                      </Typography>
+                      {profile.stats.unique_games && profile.stats.unique_games > 0 && (
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                          ({profile.stats.unique_games} уникальных игр)
+                        </Typography>
+                      )}
+                    </CardContent>
+                  </Card>
                   
                   {/* Достижения */}
                   <Card elevation={0} variant="outlined" sx={{ borderRadius: 2, height: '100%' }}>
@@ -578,6 +635,20 @@ const UserProfilePage: React.FC = () => {
                             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
                               Игра: {achievement.game_title}
                             </Typography>
+                          )}
+                          {achievement.achievement_type && achievement.achievement_type !== 'game' && (
+                            <Chip
+                              label={getAchievementTypeLabel(achievement.achievement_type)}
+                              size="small"
+                              variant="filled"
+                              sx={{
+                                mt: 1,
+                                fontSize: '0.7rem',
+                                height: 20,
+                                bgcolor: 'grey.100',
+                                color: 'grey.700'
+                              }}
+                            />
                           )}
                         </CardContent>
                       </Card>
@@ -709,9 +780,11 @@ const UserProfilePage: React.FC = () => {
 
             <Divider sx={{ my: 4 }} />
 
-            <Typography variant="body2" color="text.secondary" align="center">
-              Профиль пользователя • ID: {profile.user.id.substring(0, 12)}...
-            </Typography>
+            {!isOwnProfile && (
+              <Typography variant="body2" color="text.secondary" align="center">
+                Профиль пользователя • ID: {profile.user.id.substring(0, 12)}...
+              </Typography>
+            )}
 
             {/* Модальное окно достижений */}
             <AchievementsModal
