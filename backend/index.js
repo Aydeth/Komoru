@@ -496,12 +496,11 @@ app.get('/api/users/current/achievements', verifyToken, async (req, res) => {
 
 // 10. Синхронизация пользователя с Firebase
 app.post('/api/users/sync', verifyToken, userSyncLimiter, async (req, res) => {
+  let client;
   try {
     const { uid, email, displayName, photoURL } = req.body;
     
-    console.log(`🔄 Синхронизация пользователя: ${email} (${uid})`);
-    
-    // Проверяем, что пользователь из токена совпадает с uid в запросе
+    // Проверка соответствия токена и данных
     if (!req.user || req.user.uid !== uid) {
       return res.status(403).json({
         success: false,
@@ -509,16 +508,19 @@ app.post('/api/users/sync', verifyToken, userSyncLimiter, async (req, res) => {
       });
     }
     
-    // Проверяем, что email из токена совпадает с email в запросе
-    if (req.user.email !== email) {
-      return res.status(403).json({
-        success: false,
-        error: 'Email не соответствует токену'
-      });
-    }
+    client = await db.pool.connect();
+    await client.query('BEGIN');
     
-    // Создаем или обновляем пользователя в нашей БД
-    const result = await db.query(`
+    // Проверяем, существует ли пользователь
+    const existingUser = await client.query(
+      'SELECT id FROM users WHERE id = $1',
+      [uid]
+    );
+    
+    const isNewUser = existingUser.rows.length === 0;
+    
+    // Создаем или обновляем пользователя
+    const result = await client.query(`
       INSERT INTO users (id, email, username, avatar_url, last_login)
       VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
       ON CONFLICT (id) DO UPDATE SET
@@ -530,24 +532,48 @@ app.post('/api/users/sync', verifyToken, userSyncLimiter, async (req, res) => {
     `, [uid, email, displayName || 'Игрок', photoURL]);
     
     // Создаем запись валюты, если её нет
-    await db.query(`
+    await client.query(`
       INSERT INTO user_currency (user_id, balance)
       VALUES ($1, 0)
       ON CONFLICT (user_id) DO NOTHING
     `, [uid]);
     
+    // Если это новый пользователь, даем начальное достижение
+    if (isNewUser) {
+      const firstAchievement = await client.query(`
+        SELECT id FROM achievements 
+        WHERE title = 'Первая игра' 
+        OR title = 'Первая игра'
+        LIMIT 1
+      `);
+      
+      if (firstAchievement.rows.length > 0) {
+        await client.query(
+          'INSERT INTO user_achievements (user_id, achievement_id) VALUES ($1, $2)',
+          [uid, firstAchievement.rows[0].id]
+        );
+        console.log(`🎉 Новому пользователю ${uid} выдано начальное достижение`);
+      }
+    }
+    
+    await client.query('COMMIT');
+    
     res.json({
       success: true,
       data: result.rows[0],
+      isNewUser: isNewUser,
       message: 'Пользователь синхронизирован'
     });
     
   } catch (error) {
+    if (client) await client.query('ROLLBACK');
     console.error('❌ Ошибка синхронизации пользователя:', error);
     res.status(500).json({
       success: false,
       error: 'Ошибка синхронизации пользователя'
     });
+  } finally {
+    if (client) client.release();
   }
 });
 
@@ -1078,8 +1104,41 @@ async function checkAchievements(userId, gameId, score, metadata) {
       // Проверяем условие достижения
       switch (achievement.condition_type) {
         case 'score_above':
-          shouldUnlock = score >= achievement.condition_value;
-          unlockReason = `Счёт ${score} >= ${achievement.condition_value}`;
+          // Проверяем прогрессию - нельзя получить достижение за 1000 очков без 500
+          const allScoreAchievements = await db.query(`
+            SELECT condition_value 
+            FROM achievements 
+            WHERE condition_type = 'score_above' 
+            AND game_id = $1
+            AND (is_active = TRUE OR is_active IS NULL)
+            ORDER BY condition_value
+          `, [gameId]);
+          
+          // Находим подходящее достижение по прогрессии
+          let eligibleAchievement = null;
+          for (const ach of allScoreAchievements.rows) {
+            if (score >= ach.condition_value) {
+              // Проверяем, не получено ли уже это достижение
+              const alreadyUnlocked = await db.query(
+                `SELECT 1 FROM user_achievements ua
+                JOIN achievements a ON ua.achievement_id = a.id
+                WHERE ua.user_id = $1 
+                AND a.id = $2`,
+                [userId, ach.id]
+              );
+              
+              if (alreadyUnlocked.rows.length === 0) {
+                eligibleAchievement = ach;
+              }
+            } else {
+              break;
+            }
+          }
+          
+          if (eligibleAchievement && eligibleAchievement.id === achievement.id) {
+            shouldUnlock = true;
+            unlockReason = `Счёт ${score} >= ${achievement.condition_value}`;
+          }
           break;
           
         case 'play_count':
