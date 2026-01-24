@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { useAchievements } from '../contexts/AchievementContext';
+import { auth } from '../firebase/config';
 
 // Базовый URL нашего бэкенда на Render
 const API_BASE_URL = 'https://komoru-api.onrender.com/api';
@@ -14,19 +15,35 @@ const api = axios.create({
   withCredentials: false,
 });
 
-// Перехватчик для добавления userId как query параметра
+// Перехватчик для добавления Firebase токена
 api.interceptors.request.use(
-  (config) => {
-    // Получаем пользователя из localStorage
+  async (config) => {
+    // Получаем токен из Firebase
+    const user = auth.currentUser;
+    
+    if (user) {
+      try {
+        const token = await user.getIdToken();
+        
+        // Добавляем токен в заголовок Authorization
+        config.headers['Authorization'] = `Bearer ${token}`;
+        
+        console.log('🔐 Добавлен Firebase токен в запрос');
+      } catch (error) {
+        console.warn('⚠️ Не удалось получить токен:', error);
+      }
+    }
+    
+    // Получаем пользователя из localStorage для userId
     const userStr = localStorage.getItem('komoru_user');
     
     if (userStr) {
       try {
-        const user = JSON.parse(userStr);
+        const userData = JSON.parse(userStr);
         
         // Добавляем userId как заголовок X-User-ID
-        if (user.id && user.id !== 'guest-123') {
-          config.headers['X-User-ID'] = user.id;
+        if (userData.id && userData.id !== 'guest-123') {
+          config.headers['X-User-ID'] = userData.id;
         }
         
         // Также добавляем как query параметр для надёжности
@@ -36,12 +53,12 @@ api.interceptors.request.use(
           
           config.params = {
             ...config.params,
-            userId: user.id
+            userId: userData.id
           };
         }
         
       } catch (e) {
-        console.warn('⚠️ Не удалось распарсить пользователя');
+        console.warn('⚠️ Не удалось распарсить пользователя из localStorage');
       }
     }
     
@@ -322,24 +339,40 @@ class ApiService {
     }
   };
 
-  // Синхронизация пользователя с бэкендом
-  syncUser = async (userData: {
-    uid: string;
-    email: string | null;
-    displayName: string | null;
-    photoURL: string | null;
-  }): Promise<ApiResponse<any>> => {
-    try {
-      const response = await api.post('/users/sync', userData);
-      console.log('🔄 Пользователь синхронизирован:', response.data);
-      return response.data;
-    } catch (error) {
+// Синхронизация пользователя с бэкендом
+syncUser = async (userData: {
+  uid: string;
+  email: string | null;
+  displayName: string | null;
+  photoURL: string | null;
+}): Promise<ApiResponse<any>> => {
+  try {
+    // Токен будет автоматически добавлен перехватчиком
+    const response = await api.post('/users/sync', {
+      uid: userData.uid,
+      email: userData.email,
+      displayName: userData.displayName,
+      photoURL: userData.photoURL
+    });
+    
+    console.log('🔄 Пользователь синхронизирован:', response.data);
+    return response.data;
+  } catch (error: any) {
+    console.error('❌ Ошибка синхронизации:', error.response?.data || error.message);
+    
+    if (error.response?.status === 401 || error.response?.status === 403) {
       return {
         success: false,
-        error: 'Ошибка синхронизации'
+        error: 'Ошибка авторизации. Пожалуйста, войдите снова'
       };
     }
-  };
+    
+    return {
+      success: false,
+      error: error.response?.data?.error || 'Ошибка синхронизации'
+    };
+  }
+};
 
   // Получить все достижения
   getAllAchievements = async (): Promise<ApiResponse<any>> => {

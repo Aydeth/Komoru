@@ -6,8 +6,20 @@ const admin = require('../firebase-admin');
  */
 const verifyToken = async (req, res, next) => {
   // Пропускаем публичные маршруты
-  const publicRoutes = ['/api/health', '/api/db-check', '/api/games'];
-  if (publicRoutes.includes(req.path) || req.path.startsWith('/api/games/') && !req.path.includes('/scores')) {
+  const publicRoutes = [
+    '/api/health', 
+    '/api/db-check', 
+    '/api/games',
+    '/api/games/:id',
+    '/api/games/:id/leaderboard'
+  ];
+  
+  const isPublicRoute = publicRoutes.some(route => {
+    const regex = new RegExp('^' + route.replace(/:\w+/g, '[^/]+') + '$');
+    return regex.test(req.path);
+  });
+  
+  if (isPublicRoute && req.method === 'GET') {
     return next();
   }
   
@@ -30,8 +42,16 @@ const verifyToken = async (req, res, next) => {
       });
     }
     
-    // Проверяем токен
+    // Проверяем токен через Firebase
     const decodedToken = await admin.auth().verifyIdToken(token);
+    
+    // Проверяем, что uid из токена совпадает с uid в теле запроса (если есть)
+    if (req.body && req.body.uid && req.body.uid !== decodedToken.uid) {
+      return res.status(403).json({
+        success: false,
+        error: 'Нет прав для изменения данных другого пользователя'
+      });
+    }
     
     // Добавляем информацию о пользователе в запрос
     req.user = {

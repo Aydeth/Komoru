@@ -40,8 +40,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Синхронизация с нашим бэкендом
-  // Синхронизация с нашим бэкендом
+// Синхронизация с нашим бэкендом
 const syncUserWithBackend = async (firebaseUser: FirebaseUser) => {
   try {
     const userData = {
@@ -55,6 +54,10 @@ const syncUserWithBackend = async (firebaseUser: FirebaseUser) => {
     
     setUser(userData);
     localStorage.setItem('komoru_user', JSON.stringify(userData));
+    
+    // Получаем токен перед синхронизацией
+    const token = await firebaseUser.getIdToken();
+    console.log('🔐 Firebase токен получен:', token.substring(0, 20) + '...');
     
     // Синхронизируем с нашим бэкендом
     const syncResult = await apiService.syncUser({

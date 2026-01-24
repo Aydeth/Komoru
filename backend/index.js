@@ -5,6 +5,8 @@ const db = require('./db');
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+const { verifyToken } = require('./middleware/auth');
+
 // ==================== АВТОМАТИЧЕСКАЯ МИГРАЦИЯ БД ====================
 const autoMigrateDatabase = require('./db/auto-migrate');
 
@@ -302,7 +304,7 @@ app.get('/api/user/me', async (req, res) => {
 // ==================== API ДЛЯ ИГР ====================
 
 // 7. Сохранить результат игры (с возвратом разблокированных достижений) - ИСПРАВЛЕННАЯ ВЕРСИЯ
-app.post('/api/games/:id/scores', async (req, res) => {
+app.post('/api/games/:id/scores', verifyToken, async (req, res) => {
   let client;
   try {
     const { id: gameId } = req.params;
@@ -430,7 +432,7 @@ app.post('/api/games/:id/scores', async (req, res) => {
 });
 
 // 8. Получить результаты текущего пользователя
-app.get('/api/users/current/scores', async (req, res) => {
+app.get('/api/users/current/scores', verifyToken, async (req, res) => {
   try {
     const userId = getUserId(req);
     
@@ -460,7 +462,7 @@ app.get('/api/users/current/scores', async (req, res) => {
 });
 
 // 9. Получить достижения текущего пользователя
-app.get('/api/users/current/achievements', async (req, res) => {
+app.get('/api/users/current/achievements', verifyToken, async (req, res) => {
   try {
     const userId = getUserId(req);
     
@@ -489,11 +491,27 @@ app.get('/api/users/current/achievements', async (req, res) => {
 });
 
 // 10. Синхронизация пользователя с Firebase
-app.post('/api/users/sync', async (req, res) => {
+app.post('/api/users/sync', verifyToken, async (req, res) => {
   try {
     const { uid, email, displayName, photoURL } = req.body;
     
     console.log(`🔄 Синхронизация пользователя: ${email} (${uid})`);
+    
+    // Проверяем, что пользователь из токена совпадает с uid в запросе
+    if (!req.user || req.user.uid !== uid) {
+      return res.status(403).json({
+        success: false,
+        error: 'Нет прав для синхронизации этого пользователя'
+      });
+    }
+    
+    // Проверяем, что email из токена совпадает с email в запросе
+    if (req.user.email !== email) {
+      return res.status(403).json({
+        success: false,
+        error: 'Email не соответствует токену'
+      });
+    }
     
     // Создаем или обновляем пользователя в нашей БД
     const result = await db.query(`
