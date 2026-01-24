@@ -164,19 +164,19 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
                 </>
               ) : (
                 <Button
-                  component={Link}
-                  to="/profile"
-                  variant="outlined"
-                  size="small"
-                  startIcon={<LoginIcon />}
-                  sx={{
-                    borderRadius: 2,
-                    textTransform: 'none',
-                    fontSize: { xs: '0.75rem', sm: '0.875rem' }
-                  }}
-                >
-                  Войти
-                </Button>
+                component={Link}
+                to="/auth"  // <-- МЕНЯЕМ с /profile на /auth
+                variant="outlined"
+                size="small"
+                startIcon={<LoginIcon />}
+                sx={{
+                  borderRadius: 2,
+                  textTransform: 'none',
+                  fontSize: { xs: '0.75rem', sm: '0.875rem' }
+                }}
+              >
+                Войти
+              </Button>
               )}
             </Box>
           </Toolbar>

@@ -1,6 +1,5 @@
-// App.tsx
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { CssBaseline, ThemeProvider, createTheme } from '@mui/material';
 
 // Контексты
@@ -8,11 +7,12 @@ import { AuthProvider } from './contexts/AuthContext';
 import { AchievementProvider } from './contexts/AchievementContext';
 
 // Компоненты
-import AchievementManager from './components/Achievements/AchievementManager'; // <-- ДОБАВЛЯЕМ
+import AchievementManager from './components/Achievements/AchievementManager';
 
 // Страницы
 import HomePage from './pages/Home/HomePage';
 import GamePage from './pages/Game/GamePage';
+import AuthPage from './pages/Auth/AuthPage';
 import UserProfilePage from './pages/User/UserProfilePage';
 import ProfileRedirect from './pages/Profile/ProfileRedirect';
 
@@ -48,14 +48,16 @@ function App() {
       <CssBaseline />
       <AuthProvider>
         <AchievementProvider>
-          <AchievementManager> {/* <-- ОБЕРТЫВАЕМ ВСЁ В МЕНЕДЖЕР */}
+          <AchievementManager>
             <Router>
               <Layout>
                 <Routes>
                   <Route path="/" element={<HomePage />} />
                   <Route path="/game/:id" element={<GamePage />} />
+                  <Route path="/auth" element={<AuthPage />} />
                   <Route path="/profile" element={<ProfileRedirect />} />
                   <Route path="/user/:userId" element={<UserProfilePage />} />
+                  <Route path="*" element={<Navigate to="/" replace />} />
                 </Routes>
               </Layout>
             </Router>
