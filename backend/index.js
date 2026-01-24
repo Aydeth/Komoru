@@ -7,6 +7,8 @@ const PORT = process.env.PORT || 3001;
 
 const { verifyToken } = require('./middleware/auth');
 const { gameScoreLimiter, userSyncLimiter } = require('./middleware/rateLimit');
+const adminRouter = require('./admin');
+
 
 // ==================== АВТОМАТИЧЕСКАЯ МИГРАЦИЯ БД ====================
 const autoMigrateDatabase = require('./db/auto-migrate');
@@ -1297,6 +1299,8 @@ async function updateUserXP(userId) {
     console.error('❌ Ошибка при обновлении опыта:', error);
   }
 }
+
+app.use('/api/admin', adminRouter);
 
 // ==================== ЗАПУСК СЕРВЕРА ====================
 app.listen(PORT, () => {
