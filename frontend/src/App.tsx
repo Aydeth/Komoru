@@ -3,7 +3,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import { CssBaseline, ThemeProvider, createTheme } from '@mui/material';
 
 // Контексты
-import { AuthProvider } from './contexts/AuthContext';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { AchievementProvider } from './contexts/AchievementContext';
 
 // Компоненты
@@ -18,6 +18,18 @@ import ProfileRedirect from './pages/Profile/ProfileRedirect';
 
 // Компоненты
 import Layout from './components/Layout/Layout';
+
+// Компонент для защиты маршрута /auth
+const ProtectedAuthRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { user } = useAuth();
+  
+  if (user) {
+    // Если пользователь уже авторизован, перенаправляем на его профиль
+    return <Navigate to={`/user/${user.id}`} replace />;
+  }
+  
+  return <>{children}</>;
+};
 
 // Тема
 const theme = createTheme({
@@ -54,7 +66,14 @@ function App() {
                 <Routes>
                   <Route path="/" element={<HomePage />} />
                   <Route path="/game/:id" element={<GamePage />} />
-                  <Route path="/auth" element={<AuthPage />} />
+                  <Route 
+                    path="/auth" 
+                    element={
+                      <ProtectedAuthRoute>
+                        <AuthPage />
+                      </ProtectedAuthRoute>
+                    } 
+                  />
                   <Route path="/profile" element={<ProfileRedirect />} />
                   <Route path="/user/:userId" element={<UserProfilePage />} />
                   <Route path="*" element={<Navigate to="/" replace />} />
