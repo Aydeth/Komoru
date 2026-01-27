@@ -130,7 +130,7 @@ const MemoryGame: React.FC<MemoryGameProps> = ({ onBack, onGameEnd }) => {
       
       setGameOver(true);
       setTimerActive(false);
-      setGameEndCalled(true); // Защита от повторного вызова
+      setGameEndCalled(true);
       
       // Расчет очков
       const score = calculateScore();
@@ -143,15 +143,30 @@ const MemoryGame: React.FC<MemoryGameProps> = ({ onBack, onGameEnd }) => {
         localStorage.setItem('memory_high_scores', JSON.stringify(newHighScores));
       }
       
+      // Валидация и вызов onGameEnd
       if (onGameEnd) {
-        onGameEnd(score, {
+        // ВАЛИДАЦИЯ: минимальное время игры зависит от сложности
+        const minValidTime = difficulty === 0 ? 30 : difficulty === 1 ? 60 : 120;
+        const isValidGame = time >= minValidTime && moves >= totalPairs;
+        
+        if (!isValidGame) {
+          console.warn(`⚠️  Подозрительно быстрая игра: ${time}сек, ${moves} ходов`);
+        }
+        
+        const safeMetadata = {
           difficulty: difficultyKey,
           time,
           moves,
           accuracy: moves > 0 ? ((matches * 2) / moves) * 100 : 0,
           gameVersion: '1.1.0',
-          session_duration: time
-        });
+          session_duration: time,
+          totalPairs,
+          matchedPairs: matches,
+          perfectGame: moves === totalPairs,
+          isValidGame
+        };
+        
+        onGameEnd(score, safeMetadata);
       }
     }
   }, [matches, gameStarted, gameOver, gameEndCalled, difficulty, time, moves, highScore, onGameEnd]);
@@ -600,6 +615,7 @@ const MemoryGame: React.FC<MemoryGameProps> = ({ onBack, onGameEnd }) => {
                 <li><Typography variant="body2">За один ход можно открыть только 2 карточки</Typography></li>
                 <li><Typography variant="body2">Совпавшие карточки остаются открытыми</Typography></li>
                 <li><Typography variant="body2">Игра завершается, когда найдены все пары</Typography></li>
+                <li><Typography variant="body2">Для сохранения результата игра должна длиться минимум 30 секунд</Typography></li>
               </ul>
             </Box>
             <Box>

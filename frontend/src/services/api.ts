@@ -69,6 +69,28 @@ api.interceptors.request.use(
   }
 );
 
+// Добавить retry логику
+api.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    const originalRequest = error.config;
+    
+    // Если ошибка 5xx или таймаут - пробуем повторить
+    if ((error.code === 'ECONNABORTED' || error.response?.status >= 500) && 
+        !originalRequest._retry) {
+      
+      originalRequest._retry = true;
+      
+      // Ждем перед повторной попыткой
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      return api(originalRequest);
+    }
+    
+    return Promise.reject(error);
+  }
+);
+
 // Интерфейсы
 export interface Game {
   id: string;
@@ -269,45 +291,45 @@ class ApiService {
   }
 
   // Сохранить результат игры
-    saveGameScore = async (
-    gameId: string,
-    score: number,
-    metadata?: Record<string, any>
-  ): Promise<ApiResponse<GameScore>> => {
-    try {
-      const userStr = localStorage.getItem('komoru_user');
-      let userId = 'guest-123';
-      
-      if (userStr) {
-        const user = JSON.parse(userStr);
-        userId = user.id || 'guest-123';
-      }
-      
-      console.log(`💾 Сохранение результата для пользователя: ${userId} (игра: ${gameId}, счёт: ${score})`);
-      
-      const response = await api.post(`/games/${gameId}/scores`, {
-        userId,
-        score,
-        metadata: metadata || {}
-      });
-      
-      console.log('✅ Результат сохранен:', response.data);
-      
-      // Если есть разблокированное достижение - вызываем callbacks
-      if (response.data.unlocked_achievement) {
-        console.log('🎉 Получено новое достижение, вызываем callbacks');
-        this.triggerAchievementCallbacks(response.data.unlocked_achievement);
-      }
-      
-      return response.data;
-    } catch (error: any) {
-      console.error('❌ Ошибка сохранения:', error.response?.data || error.message);
+saveGameScore = async (
+  gameId: string,
+  score: number,
+  metadata?: Record<string, any>
+): Promise<ApiResponse<GameScore>> => {
+  try {
+    console.log(`💾 Сохранение результата (игра: ${gameId}, счёт: ${score})`);
+    
+    // НЕ отправляем userId в теле запроса - он берется из токена на бэкенде
+    const response = await api.post(`/games/${gameId}/scores`, {
+      score,
+      metadata: metadata || {}
+    });
+    
+    console.log('✅ Результат сохранен:', response.data);
+    
+    // Если есть разблокированное достижение - вызываем callbacks
+    if (response.data.unlocked_achievement) {
+      console.log('🎉 Получено новое достижение, вызываем callbacks');
+      this.triggerAchievementCallbacks(response.data.unlocked_achievement);
+    }
+    
+    return response.data;
+  } catch (error: any) {
+    console.error('❌ Ошибка сохранения:', error.response?.data || error.message);
+    
+    if (error.response?.status === 401 || error.response?.status === 403) {
       return {
         success: false,
-        error: error.response?.data?.error || 'Не удалось сохранить результат'
+        error: 'Требуется авторизация для сохранения результатов'
       };
     }
-  };
+    
+    return {
+      success: false,
+      error: error.response?.data?.error || 'Не удалось сохранить результат'
+    };
+  }
+};
 
   // Получить результаты пользователя
   getUserScores = async (): Promise<ApiResponse<GameScore[]>> => {

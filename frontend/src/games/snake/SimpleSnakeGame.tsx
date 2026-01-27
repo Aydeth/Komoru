@@ -34,11 +34,13 @@ const SimpleSnakeGame: React.FC<SnakeGameProps> = ({ onBack, onGameEnd }) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [speed, setSpeed] = useState(INITIAL_SPEED);
   const [justAte, setJustAte] = useState(false);
+  const [gameTime, setGameTime] = useState(0); // Добавляем таймер игры
+  const [gameEndCalled, setGameEndCalled] = useState(false); // Защита от повторного вызова
 
   // Используем useRef для отслеживания последнего направления
   const directionRef = useRef(direction);
 
-  // Генерация еды (только один раз при инициализации и после съедения)
+  // Генерация еды
   const generateFood = useCallback(() => {
     let newFood: Position;
     let attempts = 0;
@@ -52,7 +54,7 @@ const SimpleSnakeGame: React.FC<SnakeGameProps> = ({ onBack, onGameEnd }) => {
     } while (snake.some(segment => segment.x === newFood.x && segment.y === newFood.y));
     
     setFood(newFood);
-    setJustAte(false); // Сбрасываем флаг съедения
+    setJustAte(false);
   }, [snake]);
 
   // Инициализация
@@ -69,6 +71,21 @@ const SimpleSnakeGame: React.FC<SnakeGameProps> = ({ onBack, onGameEnd }) => {
       generateFood();
     }
   }, [isPlaying, gameOver, generateFood]);
+
+  // Таймер игры
+  useEffect(() => {
+    let interval: NodeJS.Timeout | null = null;
+    
+    if (isPlaying && !gameOver) {
+      interval = setInterval(() => {
+        setGameTime(prev => prev + 1);
+      }, 1000);
+    }
+    
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [isPlaying, gameOver]);
 
   // Обработка клавиш
   useEffect(() => {
@@ -144,15 +161,27 @@ const SimpleSnakeGame: React.FC<SnakeGameProps> = ({ onBack, onGameEnd }) => {
         ) {
           setGameOver(true);
           setIsPlaying(false);
-          if (onGameEnd) {
-            onGameEnd(score, {
+          
+          // Вызываем onGameEnd с защитой от повторного вызова
+          if (onGameEnd && !gameEndCalled) {
+            setGameEndCalled(true);
+            
+            // Валидация данных перед отправкой
+            const validScore = Math.max(0, Math.min(score, 9999999));
+            const minValidTime = 5; // Минимум 5 секунд для валидной игры
+            
+            const safeMetadata = {
               playCount: 1,
               snakeLength: snake.length,
               speed: Math.round((300 - speed) / 300 * 100),
               highScore: score > highScore,
               gameVersion: '1.0.0',
-              session_duration: 0
-            });
+              session_duration: gameTime,
+              isValidGame: gameTime >= minValidTime,
+              timestamp: new Date().toISOString()
+            };
+            
+            onGameEnd(validScore, safeMetadata);
           }
           return prevSnake;
         }
@@ -162,7 +191,7 @@ const SimpleSnakeGame: React.FC<SnakeGameProps> = ({ onBack, onGameEnd }) => {
 
         // Проверка съедания еды
         if (head.x === food.x && head.y === food.y) {
-          const newScore = score + 10;
+          const newScore = score + 299;
           setScore(newScore);
           ateFood = true;
           setJustAte(true);
@@ -187,7 +216,7 @@ const SimpleSnakeGame: React.FC<SnakeGameProps> = ({ onBack, onGameEnd }) => {
     }, speed);
 
     return () => clearInterval(gameLoop);
-  }, [isPlaying, gameOver, nextDirection, food, score, highScore, onGameEnd, speed, generateFood, snake]);
+  }, [isPlaying, gameOver, nextDirection, food, score, highScore, onGameEnd, speed, generateFood, snake, gameTime, gameEndCalled]);
 
   const startGame = () => {
     setSnake([{ x: 10, y: 10 }]);
@@ -195,7 +224,9 @@ const SimpleSnakeGame: React.FC<SnakeGameProps> = ({ onBack, onGameEnd }) => {
     setNextDirection({ x: 1, y: 0 });
     setScore(0);
     setGameOver(false);
+    setGameEndCalled(false);
     setIsPlaying(true);
+    setGameTime(0);
     generateFood();
   };
 
@@ -236,11 +267,17 @@ const SimpleSnakeGame: React.FC<SnakeGameProps> = ({ onBack, onGameEnd }) => {
   const colors = {
     background: '#FFFFFF',
     gridLine: '#E0E0E0',
-    snakeHead: '#81C784', // Пастельный зеленый
-    snakeBody: '#A5D6A7', // Более светлый пастельный зеленый
-    food: '#EF9A9A', // Пастельный красный
+    snakeHead: '#81C784',
+    snakeBody: '#A5D6A7',
+    food: '#EF9A9A',
     border: '#2E7D32',
     text: '#1B5E20',
+  };
+
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
   return (
@@ -285,6 +322,15 @@ const SimpleSnakeGame: React.FC<SnakeGameProps> = ({ onBack, onGameEnd }) => {
                 {highScore}
               </Typography>
             </Box>
+            
+            <Box sx={{ textAlign: 'center' }}>
+              <Typography variant="caption" color="text.secondary">
+                Время
+              </Typography>
+              <Typography variant="h5" sx={{ color: colors.text }}>
+                {formatTime(gameTime)}
+              </Typography>
+            </Box>
           </Box>
         </Box>
       </Paper>
@@ -297,7 +343,6 @@ const SimpleSnakeGame: React.FC<SnakeGameProps> = ({ onBack, onGameEnd }) => {
           margin: '0 auto',
           position: 'relative',
           backgroundColor: colors.background,
-          // Сетка на фоне
           backgroundImage: `
             linear-gradient(${colors.gridLine} 1px, transparent 1px),
             linear-gradient(90deg, ${colors.gridLine} 1px, transparent 1px)
@@ -454,7 +499,7 @@ const SimpleSnakeGame: React.FC<SnakeGameProps> = ({ onBack, onGameEnd }) => {
                 '&:hover': { bgcolor: '#C8E6C9' },
                 width: 60,
                 height: 60,
-            }}
+              }}
             >
               <ArrowBackIosIcon />
             </IconButton>
@@ -577,6 +622,7 @@ const SimpleSnakeGame: React.FC<SnakeGameProps> = ({ onBack, onGameEnd }) => {
               <li><Typography variant="body2">Каждое 🍎 увеличивает змейку</Typography></li>
               <li><Typography variant="body2">Избегайте стен и себя</Typography></li>
               <li><Typography variant="body2">Рекорд сохраняется в браузере</Typography></li>
+              <li><Typography variant="body2">Игра длится минимум 5 секунд для сохранения</Typography></li>
             </ul>
           </Box>
         </Box>
